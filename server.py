@@ -1,7 +1,9 @@
 import os
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # <-- Autorise toutes les origines
 
 @app.route("/ping")
 def ping():

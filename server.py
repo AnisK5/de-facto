@@ -1,8 +1,9 @@
-# ============================
-#  FACTO - BACKEND D'ANALYSE DE TEXTE
-#  Version : 1.2 (avec pondération, preuves, limites, logs)
+# =====================================================
+#  DE FACTO - BACKEND D'ANALYSE DE TEXTE
+#  Version : 1.4
 #  Auteur : Anis + ChatGPT
-# ============================
+#  Mission : Évaluer la fiabilité et la rigueur argumentative d’un texte.
+# =====================================================
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -11,102 +12,100 @@ from datetime import datetime
 import os, json, re
 
 # ----------------------------
-# 1️⃣  CONFIGURATION DU SERVEUR
+# 1️⃣ INITIALISATION DU SERVEUR
 # ----------------------------
 
-# Création de l’application Flask
 app = Flask(__name__)
-
-# Autoriser les requêtes cross-origin (depuis ton front HTML ou WeWeb)
 CORS(app)
 
-# Initialisation du client OpenAI avec la clé d’API (stockée sur Render)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+
 # ----------------------------
-# 2️⃣  PAGE D’ACCUEIL
+# 2️⃣ PAGE D’ACCUEIL
 # ----------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
-        "message": "Bienvenue sur l’API du Baromètre de Fiabilité (Facto).",
+        "message": "Bienvenue sur l’API De Facto.",
         "routes": ["/analyze (POST)"],
-        "description": "Envoyez un texte pour obtenir une analyse complète (fond, forme, preuves, limites, etc.)."
+        "description": "Envoyez un texte pour obtenir une analyse complète et transparente."
     })
 
+
 # ----------------------------
-# 3️⃣  FONCTION PRINCIPALE D’ANALYSE
+# 3️⃣ FONCTION PRINCIPALE : /analyze
 # ----------------------------
 @app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
-    # Réponse automatique pour les requêtes CORS (pré-vol)
     if request.method == "OPTIONS":
         return ("", 204)
 
-    # Récupération du texte envoyé par le front
+    # Lecture du texte envoyé par le frontend
     data = request.get_json(force=True)
     text = data.get("text", "").strip()
 
     if not text:
         return jsonify({"error": "Aucun texte reçu."}), 400
 
-    # Vérification simple de la longueur du texte
     word_count = len(text.split())
     if word_count < 50:
-        return jsonify({
-            "error": "Texte trop court pour une analyse fiable (min. 50 mots).",
-            "word_count": word_count
-        }), 400
+        return jsonify({"error": "Texte trop court pour une analyse fiable (min. 50 mots)."}), 400
+
 
     # ----------------------------
-    # 4️⃣  PROMPT D’ANALYSE GPT
+    # 4️⃣ PROMPT GPT
     # ----------------------------
     prompt = f"""
-    Tu es le moteur d'analyse du Baromètre de Fiabilité (Facto).
-    Ta mission est d'évaluer la rigueur argumentative et la fiabilité d’un texte à visée informative.
+    Tu es le moteur d'analyse de DE FACTO, un outil de fiabilité des textes.
+    Ta mission : évaluer la rigueur argumentative d’un texte informatif selon une méthode claire et reproductible.
 
-    ⚠️ Si le texte n’est pas informatif (opinion, fiction, satire, etc.), indique-le clairement.
+    🧭 DÉFINITION MÉTHODOLOGIQUE :
+    - FOND :
+        • Justesse : précision des faits, qualité des sources citées, cohérence interne.
+        • Complétude : diversité des points de vue, mention de contre-arguments, ouverture à la nuance.
+    - FORME :
+        • Ton : neutralité du vocabulaire, absence de charge émotionnelle.
+        • Biais : détection des sophismes, généralisations ou appels à l’émotion.
 
-    Analyse selon 4 sous-critères :
-    - **FOND** :
-        • Justesse : qualité des sources, cohérence des faits.
-        • Complétude : diversité des points de vue, nuance, contre-arguments.
-    - **FORME** :
-        • Ton : neutralité, charge émotionnelle.
-        • Biais : sophismes, généralisations, appel à l’émotion.
+    🧱 CONSIGNES :
+    - Si le texte n’est pas informatif (opinion, fiction, humour...), indique-le clairement dans "type_texte".
+    - Donne une note de 0 à 1 pour chaque sous-critère.
+    - Ajoute pour chacun : une courte justification, 1–3 exemples du texte ("preuves"), et un ou deux points d'amélioration ("elements_manquants").
+    - Calcule un score global pondéré : 70 % fond, 30 % forme.
+    - Attribue une couleur selon la grille suivante :
+        🟢 ≥ 70
+        🟡 40–69
+        🔴 < 40
+    - Indique un niveau de confiance (0 à 1) basé sur la clarté et la longueur du texte.
+    - Fournis :
+        - une impression générale,
+        - un conseil de lecture,
+        - les limites du texte,
+        - les limites de ton analyse,
+        - les vérifications suggérées,
+        - et un résumé des critères appliqués.
+    - Ajoute une section "methode" explicitant les critères d’analyse.
 
-    Pour chaque sous-critère, fournis :
-    - une note entre 0 et 1,
-    - des preuves citées (éléments factuels du texte),
-    - des explications (interprétation, contexte),
-    - les éléments manquants (ce qui affaiblit le raisonnement).
-
-    Ensuite :
-    - Calcule un score global sur 100 (pondération : 70 % fond, 30 % forme).
-    - Donne une couleur indicative (🟢 ≥70, 🟡 40–69, 🔴 <40).
-    - Indique un niveau de confiance (0 à 1).
-    - Indique le type de texte (informatif, opinion, fiction, etc.).
-    - Mentionne les limites de l’analyse (texte incomplet, ambiguïté, manque de contexte...).
-    - Fournis une impression générale et un conseil de lecture.
-
-    Réponds **uniquement en JSON strict**, sans texte autour.
-
-    Format attendu :
+    📊 FORMAT JSON STRICT :
     {{
       "pertinence": "<texte>",
       "type_texte": "<informatif | opinion | fiction | autre>",
       "confiance": <float>,
       "score_global": <float>,
+      "couleur": "<🟢 | 🟡 | 🔴>",
       "axes": {{
         "fond": {{
           "justesse": {{
             "note": <float>,
+            "couleur": "<🟢 | 🟡 | 🔴>",
             "preuves": ["<exemple>", "..."],
             "explications": ["<texte>", "..."],
             "elements_manquants": ["<texte>", "..."]
           }},
           "completuede": {{
             "note": <float>,
+            "couleur": "<🟢 | 🟡 | 🔴>",
             "preuves": ["<exemple>", "..."],
             "explications": ["<texte>", "..."],
             "elements_manquants": ["<texte>", "..."]
@@ -115,22 +114,36 @@ def analyze():
         "forme": {{
           "ton": {{
             "note": <float>,
+            "couleur": "<🟢 | 🟡 | 🔴>",
             "preuves": ["<exemple>", "..."],
             "explications": ["<texte>", "..."]
           }},
           "biais": {{
             "note": <float>,
+            "couleur": "<🟢 | 🟡 | 🔴>",
             "preuves": ["<exemple>", "..."],
             "explications": ["<texte>", "..."]
           }}
         }}
       }},
-      "commentaire": "<2 phrases sur les forces et faiblesses>",
-      "synthese": "<phrase courte de conclusion>",
-      "impression_generale": "<phrase résumant la fiabilité perçue>",
-      "conseil": "<recommandation pour le lecteur>",
-      "couleur": "<🟢 | 🟡 | 🔴>",
-      "limites": ["<texte>", "..."]
+      "commentaire": "<texte>",
+      "synthese": "<phrase courte>",
+      "impression_generale": "<phrase courte>",
+      "conseil": "<recommandation>",
+      "resume_criteres": ["<phrase>", "..."],
+      "verifications_suggerees": ["<élément à vérifier>", "..."],
+      "limites_texte": ["<texte>", "..."],
+      "limites_analyse": ["<texte>", "..."],
+      "methode": {{
+        "principe": "De Facto évalue la rigueur argumentative d’un texte selon deux axes : le fond et la forme.",
+        "criteres": {{
+          "justesse": "Vérifie la précision des faits et la présence de sources identifiables.",
+          "completuede": "Mesure la diversité des points de vue et la prise en compte des contre-arguments.",
+          "ton": "Analyse la neutralité du vocabulaire et la charge émotionnelle.",
+          "biais": "Détecte les sophismes et généralisations abusives."
+        }},
+        "avertissement": "L’analyse porte sur le texte fourni, pas sur la réputation du média ou de l’auteur."
+      }}
     }}
 
     Texte à analyser :
@@ -140,70 +153,71 @@ def analyze():
     """
 
     # ----------------------------
-    # 5️⃣  APPEL À L’API GPT
+    # 5️⃣ APPEL À GPT
     # ----------------------------
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # modèle rapide et économique
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un moteur d'analyse rigoureux et transparent pour Facto."},
+                {"role": "system", "content": "Tu es le moteur d’analyse structuré et transparent de De Facto."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3  # faible pour la stabilité des résultats
+            temperature=0.3
         )
 
-        # Extraction du contenu textuel
         raw_output = response.choices[0].message.content.strip()
 
         # ----------------------------
-        # 6️⃣  VALIDATION ET PARSING DU JSON
+        # 6️⃣ PARSING DU JSON
         # ----------------------------
         try:
             result = json.loads(raw_output)
         except json.JSONDecodeError:
-            # Si GPT renvoie du texte autour du JSON, on extrait proprement
             match = re.search(r"\{.*\}", raw_output, re.DOTALL)
             result = json.loads(match.group(0)) if match else {"error": "JSON invalide"}
 
         # ----------------------------
-        # 7️⃣  PONDÉRATION ET CALCUL LOCAL DU SCORE GLOBAL
+        # 7️⃣ CALCUL LOCAL + COULEURS
         # ----------------------------
+        def couleur_note(note):
+            if note is None: return "⚪"
+            if note >= 0.7: return "🟢"
+            elif note >= 0.4: return "🟡"
+            else: return "🔴"
+
         try:
             fond = result.get("axes", {}).get("fond", {})
             forme = result.get("axes", {}).get("forme", {})
 
-            fond_score = (
-                fond.get("justesse", {}).get("note", 0) +
-                fond.get("completuede", {}).get("note", 0)
-            ) / 2
+            for axe in [fond, forme]:
+                for critere in axe.values():
+                    note = critere.get("note", 0)
+                    critere["couleur"] = couleur_note(note)
 
-            forme_score = (
-                forme.get("ton", {}).get("note", 0) +
-                forme.get("biais", {}).get("note", 0)
-            ) / 2
-
+            fond_score = (fond.get("justesse", {}).get("note", 0) + fond.get("completuede", {}).get("note", 0)) / 2
+            forme_score = (forme.get("ton", {}).get("note", 0) + forme.get("biais", {}).get("note", 0)) / 2
             score_global = round((fond_score * 0.7 + forme_score * 0.3) * 100, 1)
             result["score_global"] = score_global
-        except Exception:
-            pass  # en cas d’erreur, on garde le score GPT
+            result["couleur"] = couleur_note(score_global / 100)
+        except Exception as e:
+            print("⚠️ Erreur calcul couleur :", e)
 
         # ----------------------------
-        # 8️⃣  SAUVEGARDE DANS LES LOGS
+        # 8️⃣ LOGS (sauvegarde locale)
         # ----------------------------
         try:
             log_entry = {
                 "timestamp": datetime.utcnow().isoformat(),
-                "texte": text[:2000],  # on limite la taille du texte stocké
-                "word_count": word_count,
+                "texte": text[:2000],
                 "resultat": result
             }
             with open("logs.json", "a", encoding="utf-8") as f:
                 f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
         except Exception as e:
-            print("⚠️ Erreur de sauvegarde des logs :", e)
+            print("⚠️ Erreur de log :", e)
 
         # ----------------------------
-        # 9️⃣  RETOUR AU FRONT
+        # 9️⃣ RÉPONSE AU FRONT
         # ----------------------------
         return jsonify(result)
 
@@ -211,17 +225,14 @@ def analyze():
         print("❌ Erreur GPT :", e)
         return jsonify({"error": str(e)}), 500
 
-# ----------------------------
-# 🔟 SYNTHÈSE DU CODE
-# ----------------------------
-# Ce backend :
-# ✅ Reçoit un texte (via POST /analyze)
-# ✅ Analyse fond, forme, justesse, ton, biais...
-# ✅ Fournit justifications, preuves, éléments manquants
-# ✅ Détecte les limites de l’analyse et le type de texte
-# ✅ Calcule le score global pondéré (70 % fond / 30 % forme)
-# ✅ Enregistre l’analyse dans logs.json
-# ✅ Retourne un JSON complet, structuré et lisible par ton front
-# ----------------------------
 
-# (Aucune exécution locale à prévoir ici : Render lance automatiquement gunicorn server:app)
+# =====================================================
+# SYNTHÈSE DU CODE
+# =====================================================
+# ✅ Reçoit un texte (POST /analyze)
+# ✅ Analyse fond / forme / justesse / complétude / ton / biais
+# ✅ Fournit : commentaires, conseils, limites, méthode, suggestions
+# ✅ Calcule localement les couleurs et le score global (70/30)
+# ✅ Sauvegarde les résultats dans logs.json
+# ✅ Renvoie un JSON clair, complet et UX-friendly
+# =====================================================

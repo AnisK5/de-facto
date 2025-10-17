@@ -1,7 +1,6 @@
 flask
 flask-cors
-requests
 gunicorn
 openai
-
-
+requests
+beautifulsoup4

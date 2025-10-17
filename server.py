@@ -3,93 +3,115 @@ from flask_cors import CORS
 from openai import OpenAI
 import os, signal, json, re
 
+# ---------------------------
+# Flask + CORS
+# ---------------------------
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
+# ---------------------------
+# OpenAI client (clé en var d'env OPENAI_API_KEY)
+# ---------------------------
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ---- Timeout Render (évite les requêtes bloquantes) ----
+# ---------------------------
+# Timeout hard (Render) pour éviter les requêtes bloquantes
+# ---------------------------
 def _timeout_handler(signum, frame):
     raise TimeoutError("Analyse trop longue (timeout Render).")
 signal.signal(signal.SIGALRM, _timeout_handler)
 
+# ---------------------------
+# Helpers
+# ---------------------------
+def color_for(score: int) -> str:
+    if score is None: return "⚪"
+    if score >= 70: return "🟢"
+    if score >= 40: return "🟡"
+    return "🔴"
+
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
-        "message": "De Facto v1.7 (scorecard + détails pliables + méthode)",
+        "message": "De Facto v1.8 (Fond/Forme + recherche interne + scorecard)",
         "routes": ["/analyze (POST)"],
         "hint": "POST { text: '<texte ou url>' }"
     })
 
+# ---------------------------
+# Route principale
+# ---------------------------
 @app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
     if request.method == "OPTIONS":
         return ("", 204)
 
-    data = request.get_json(force=True)
-    text = (data.get("text") or "").strip()
+    payload = request.get_json(force=True)
+    text = (payload.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Aucun texte reçu"}), 400
 
-    # ---- Limiter la longueur pour rester stable sur Render ----
-    MAX_LEN = 8000  # ≈ 1300 mots
+    # Tronquage protecteur (stabilité Render)
+    MAX_LEN = 8000
     texte_tronque = False
-    if len(text) > MAX_LEN:
+    original_length = len(text)
+    if original_length > MAX_LEN:
         texte_tronque = True
-        original_length = len(text)
         text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
 
-    # ---- Prompt : scores + détails + MÉTHODE ----
+    # Prompt : axes Fond/Forme + recherche interne simulée + limites séparées
     prompt = f"""
-Tu es De Facto, un baromètre d’analyse de fiabilité des contenus (articles, posts).
-Objectif : produire une évaluation concise (scorecard) ET une fiche détaillée pliable.
+Tu es De Facto, un baromètre d’analyse de fiabilité des contenus.
+Objectif : produire une scorecard claire (score global + 4 sous-notes) et des détails pliables.
 
-Méthode (à expliquer dans la sortie):
-- FOND : Fiabilité (précision des faits, sources identifiables), Cohérence (logique, chronologie, non-contradiction).
-- FORME : Rigueur (structure argumentative, mention des limites/contre-arguments).
-- Les scores sont sur 100. Couleurs: 🟢 ≥70 ; 🟡 40–69 ; 🔴 <40.
+Grille d’évaluation :
+- FOND :
+  • Justesse = précision des faits, attribution claire, sources identifiables.
+  • Complétude = pluralité des points de vue, contre-arguments, nuance.
+- FORME :
+  • Ton = neutralité lexicale, faible charge émotionnelle.
+  • Sophismes = présence de raisonnements fallacieux (généralisations, appels à l’émotion, etc.).
 
-Procédé interne:
-- Fais DEUX analyses internes et renvoie la moyenne (pour stabiliser).
-- Si le texte semble partiel, ajuste le niveau de confiance.
+Procédé interne pour stabiliser :
+- Effectue DEUX micro-analyses indépendantes puis rends la moyenne (arrondie) des notes.
+- Notes sur 100. Couleurs : 🟢 >=70 ; 🟡 40–69 ; 🔴 <40.
 
-Réponds STRICTEMENT en JSON au format suivant (ne renvoie rien d’autre) :
+Recherche interne simulée :
+- Identifie 1–3 éléments clés à compléter/vérifier.
+- Appuie-toi sur tes connaissances internes (jusqu’en 2024/2025) pour contextualiser brièvement.
+- Si non concluante, indique-le clairement.
+
+Limites (séparées) :
+- limites_analyse_ia = ce que TON analyse ne peut pas garantir (pas d’accès web temps réel, ambiguités, etc.).
+- limites_analyse_contenu = limites du TEXTE (extrait, un seul point de vue, absence de sources, etc.).
+
+Réponds STRICTEMENT en JSON (rien d’autre) au format :
 {{
   "score_global": <int>,
   "couleur_global": "<emoji>",
-  "sous_scores": {{
-    "fiabilite": {{
-      "note": <int>,
-      "couleur": "<emoji>",
-      "justification": "<1 phrase>",
-      "citation": "<extrait (max 20 mots) ou null>"
+  "axes": {{
+    "fond": {{
+      "justesse": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}},
+      "completude": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}}
     }},
-    "coherence": {{
-      "note": <int>,
-      "couleur": "<emoji>",
-      "justification": "<1 phrase>",
-      "citation": "<extrait (max 20 mots) ou null>"
-    }},
-    "rigueur": {{
-      "note": <int>,
-      "couleur": "<emoji>",
-      "justification": "<1 phrase>",
-      "citation": "<extrait (max 20 mots) ou null>"
+    "forme": {{
+      "ton": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}},
+      "sophismes": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}}
     }}
   }},
-  "commentaire": "<2 phrases max : forces / faiblesses>",
+  "commentaire": "<2 phrases max : forces/faiblesses>",
   "resume": "<3 phrases max>",
   "confiance_analyse": <int>,
-  "limites_analyse": ["<texte>", "..."],
-  "verifications_suggerees": ["<élément à vérifier>", "..."],
+  "limites_analyse_ia": ["<texte>", "..."],
+  "limites_analyse_contenu": ["<texte>", "..."],
+  "recherches_effectuees": ["<résumé court>", "..."],
   "methode": {{
-    "principe": "De Facto évalue la rigueur argumentative d’un texte selon FOND (fiabilité, cohérence) et FORME (rigueur).",
+    "principe": "De Facto évalue un texte selon deux axes : FOND (justesse, complétude) et FORME (ton, sophismes).",
     "criteres": {{
-      "fiabilite": "Précision factuelle, attribution claire, présence/qualité des sources.",
-      "coherence": "Structure logique, chronologie claire, absence de contradictions.",
-      "rigueur": "Argumentation structurée, prise en compte des limites/contre-arguments, nuance."
+      "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
+      "forme": "Ton (neutralité) et sophismes (raisonnements fallacieux)."
     }},
-    "avertissement": "Analyse du texte fourni uniquement ; pas de navigation web en temps réel."
+    "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
   }}
 }}
 
@@ -105,16 +127,16 @@ Texte à analyser :
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un assistant d’analyse textuelle rigoureux, concis et transparent."},
+                {"role": "system", "content": "Tu es un analyste textuel rigoureux, concis et transparent."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3
+            temperature=0.3  # stabilité des notes
         )
         signal.alarm(0)
 
         raw = resp.choices[0].message.content.strip()
 
-        # ---- Parsing JSON tolérant ----
+        # Parsing JSON tolérant (extrait le plus grand bloc {...})
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
@@ -123,39 +145,38 @@ Texte à analyser :
                 return jsonify({"error": "Réponse GPT non conforme (non JSON)."}), 500
             result = json.loads(m.group(0))
 
-        # ---- Valeurs par défaut + couleurs si manquantes ----
-        def color_for(v: int) -> str:
-            if v is None: return "⚪"
-            if v >= 70: return "🟢"
-            if v >= 40: return "🟡"
-            return "🔴"
-
+        # Valeurs par défaut & réparations légères
         result.setdefault("confiance_analyse", 80)
-        result.setdefault("limites_analyse", [])
-        result.setdefault("verifications_suggerees", [])
+        result.setdefault("limites_analyse_ia", [])
+        result.setdefault("limites_analyse_contenu", [])
+        result.setdefault("recherches_effectuees", [])
         result.setdefault("methode", {
-            "principe": "De Facto évalue la rigueur argumentative (FOND/FORME).",
+            "principe": "De Facto évalue un texte selon FOND (justesse, complétude) et FORME (ton, sophismes).",
             "criteres": {
-                "fiabilite": "Précision des faits, attribution claire, sources.",
-                "coherence": "Logique, chronologie, non-contradiction.",
-                "rigueur": "Structure argumentative, limites/contre-arguments."
+                "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
+                "forme": "Ton (neutralité) et sophismes (raisonnements fallacieux)."
             },
-            "avertissement": "Analyse limitée au texte fourni."
+            "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
         })
 
-        # Couleurs par défaut si oubliées
-        if "sous_scores" in result:
-            for k, v in result["sous_scores"].items():
-                if isinstance(v, dict) and "note" in v:
-                    v.setdefault("couleur", color_for(v["note"]))
-        if "score_global" in result:
-            result.setdefault("couleur_global", color_for(result["score_global"]))
+        # Couleurs : si absentes, on calcule
+        try:
+            if "score_global" in result:
+                result.setdefault("couleur_global", color_for(int(result["score_global"])))
+            axes = result.get("axes", {})
+            for bloc in ("fond", "forme"):
+                if bloc in axes and isinstance(axes[bloc], dict):
+                    for crit in axes[bloc].values():
+                        if isinstance(crit, dict) and "note" in crit:
+                            crit.setdefault("couleur", color_for(int(crit["note"])))
+        except Exception:
+            pass
 
-        # Transparence si tronqué
+        # Transparence si texte tronqué
         result["texte_tronque"] = texte_tronque
         if texte_tronque:
-            result["limites_analyse"].append(
-                f"Analyse effectuée sur un extrait (max 8 000 caractères). Les résultats peuvent être partiels."
+            result["limites_analyse_contenu"].append(
+                f"Analyse effectuée sur un extrait (max {MAX_LEN} caractères sur {original_length})."
             )
 
         return jsonify(result)

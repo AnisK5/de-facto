@@ -1,157 +1,170 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
-import os
-import signal
-import json
-import re
+import os, signal, json, re
 
-# --- Initialisation du serveur Flask ---
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-# --- Initialisation du client OpenAI ---
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# --- Fonction de sécurité : timeout ---
-def handler(signum, frame):
+# ---- Timeout Render (évite les requêtes bloquantes) ----
+def _timeout_handler(signum, frame):
     raise TimeoutError("Analyse trop longue (timeout Render).")
+signal.signal(signal.SIGALRM, _timeout_handler)
 
-signal.signal(signal.SIGALRM, handler)
-
-# --- Route d'accueil (diagnostic simple) ---
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
-        "message": "Bienvenue sur l’API De Facto v1.6 (stable + détaillée)",
+        "message": "De Facto v1.7 (scorecard + détails pliables + méthode)",
         "routes": ["/analyze (POST)"],
         "hint": "POST { text: '<texte ou url>' }"
     })
 
-# --- Route principale ---
 @app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
     if request.method == "OPTIONS":
         return ("", 204)
 
     data = request.get_json(force=True)
-    text = data.get("text", "").strip()
-
+    text = (data.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Aucun texte reçu"}), 400
 
-    # --- Limite de texte pour éviter les crash Render ---
-    if len(text) > 4000:
-        text = text[:4000] + " [...] (texte tronqué pour analyse)"
+    # ---- Limiter la longueur pour rester stable sur Render ----
+    MAX_LEN = 8000  # ≈ 1300 mots
+    texte_tronque = False
+    if len(text) > MAX_LEN:
+        texte_tronque = True
+        original_length = len(text)
+        text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
 
-    # --- Prompt enrichi, mais compact ---
+    # ---- Prompt : scores + détails + MÉTHODE ----
     prompt = f"""
-    Tu es De Facto, un baromètre de fiabilité qui évalue la rigueur et la crédibilité d’un texte informatif.
+Tu es De Facto, un baromètre d’analyse de fiabilité des contenus (articles, posts).
+Objectif : produire une évaluation concise (scorecard) ET une fiche détaillée pliable.
 
-    ⚙️ Méthode :
-    1. Fais deux analyses internes indépendantes du texte.
-    2. Calcule la moyenne des scores obtenus pour plus de stabilité.
-    3. Pour chaque critère (fiabilité, cohérence, rigueur) :
-       - Donne une note sur 100.
-       - Fournis une courte justification (1 phrase).
-       - Si possible, cite un extrait représentatif du texte (max 20 mots).
-       - Attribue une couleur indicative : 🟢 si >=70, 🟡 si 40–69, 🔴 si <40.
-    4. Ajoute un score global sur 100 et sa couleur correspondante.
-    5. Donne un résumé du texte et un commentaire global (2 phrases max).
-    6. Estime un score de confiance (0–100) indiquant ta certitude.
-    7. Termine par une liste des limites de ton analyse.
+Méthode (à expliquer dans la sortie):
+- FOND : Fiabilité (précision des faits, sources identifiables), Cohérence (logique, chronologie, non-contradiction).
+- FORME : Rigueur (structure argumentative, mention des limites/contre-arguments).
+- Les scores sont sur 100. Couleurs: 🟢 ≥70 ; 🟡 40–69 ; 🔴 <40.
 
-    Réponds STRICTEMENT en JSON au format suivant :
-    {{
-      "score_global": <int>,
-      "couleur_global": "<emoji>",
-      "sous_scores": {{
-        "fiabilite": {{
-          "note": <int>,
-          "couleur": "<emoji>",
-          "justification": "<texte>",
-          "citation": "<texte ou null>"
-        }},
-        "coherence": {{
-          "note": <int>,
-          "couleur": "<emoji>",
-          "justification": "<texte>",
-          "citation": "<texte ou null>"
-        }},
-        "rigueur": {{
-          "note": <int>,
-          "couleur": "<emoji>",
-          "justification": "<texte>",
-          "citation": "<texte ou null>"
-        }}
-      }},
-      "commentaire": "<texte>",
-      "resume": "<texte>",
-      "confiance_analyse": <int>,
-      "limites_analyse": ["<texte>", "<texte>"]
+Procédé interne:
+- Fais DEUX analyses internes et renvoie la moyenne (pour stabiliser).
+- Si le texte semble partiel, ajuste le niveau de confiance.
+
+Réponds STRICTEMENT en JSON au format suivant (ne renvoie rien d’autre) :
+{{
+  "score_global": <int>,
+  "couleur_global": "<emoji>",
+  "sous_scores": {{
+    "fiabilite": {{
+      "note": <int>,
+      "couleur": "<emoji>",
+      "justification": "<1 phrase>",
+      "citation": "<extrait (max 20 mots) ou null>"
+    }},
+    "coherence": {{
+      "note": <int>,
+      "couleur": "<emoji>",
+      "justification": "<1 phrase>",
+      "citation": "<extrait (max 20 mots) ou null>"
+    }},
+    "rigueur": {{
+      "note": <int>,
+      "couleur": "<emoji>",
+      "justification": "<1 phrase>",
+      "citation": "<extrait (max 20 mots) ou null>"
     }}
+  }},
+  "commentaire": "<2 phrases max : forces / faiblesses>",
+  "resume": "<3 phrases max>",
+  "confiance_analyse": <int>,
+  "limites_analyse": ["<texte>", "..."],
+  "verifications_suggerees": ["<élément à vérifier>", "..."],
+  "methode": {{
+    "principe": "De Facto évalue la rigueur argumentative d’un texte selon FOND (fiabilité, cohérence) et FORME (rigueur).",
+    "criteres": {{
+      "fiabilite": "Précision factuelle, attribution claire, présence/qualité des sources.",
+      "coherence": "Structure logique, chronologie claire, absence de contradictions.",
+      "rigueur": "Argumentation structurée, prise en compte des limites/contre-arguments, nuance."
+    }},
+    "avertissement": "Analyse du texte fourni uniquement ; pas de navigation web en temps réel."
+  }}
+}}
 
-    Texte à analyser :
-    ---
-    {text}
-    ---
-    """
+Texte à analyser :
+---
+{text}
+---
+"""
 
     try:
-        # Timeout de 25 secondes max
-        signal.alarm(25)
+        signal.alarm(25)  # garde-fou Render
 
-        response = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un assistant d’analyse de texte rigoureux et fiable."},
+                {"role": "system", "content": "Tu es un assistant d’analyse textuelle rigoureux, concis et transparent."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3
         )
-
         signal.alarm(0)
 
-        gpt_content = response.choices[0].message.content.strip()
+        raw = resp.choices[0].message.content.strip()
 
-        # Parsing JSON tolérant
+        # ---- Parsing JSON tolérant ----
         try:
-            result = json.loads(gpt_content)
+            result = json.loads(raw)
         except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", gpt_content, re.DOTALL)
-            if match:
-                result = json.loads(match.group(0))
-            else:
-                print("⚠️ Réponse non JSON:", gpt_content[:300])
-                return jsonify({"error": "Réponse GPT non conforme."}), 500
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not m:
+                return jsonify({"error": "Réponse GPT non conforme (non JSON)."}), 500
+            result = json.loads(m.group(0))
 
-        # Valeurs par défaut
-        result.setdefault("confiance_analyse", 80)
-        result.setdefault("limites_analyse", ["Non précisées."])
-
-        # Si GPT oublie les couleurs, on les régénère côté Python
-        def color_for(value):
-            if value >= 70: return "🟢"
-            if value >= 40: return "🟡"
+        # ---- Valeurs par défaut + couleurs si manquantes ----
+        def color_for(v: int) -> str:
+            if v is None: return "⚪"
+            if v >= 70: return "🟢"
+            if v >= 40: return "🟡"
             return "🔴"
 
-        if "sous_scores" in result:
-            for key, val in result["sous_scores"].items():
-                if isinstance(val, dict) and "note" in val:
-                    val.setdefault("couleur", color_for(val["note"]))
+        result.setdefault("confiance_analyse", 80)
+        result.setdefault("limites_analyse", [])
+        result.setdefault("verifications_suggerees", [])
+        result.setdefault("methode", {
+            "principe": "De Facto évalue la rigueur argumentative (FOND/FORME).",
+            "criteres": {
+                "fiabilite": "Précision des faits, attribution claire, sources.",
+                "coherence": "Logique, chronologie, non-contradiction.",
+                "rigueur": "Structure argumentative, limites/contre-arguments."
+            },
+            "avertissement": "Analyse limitée au texte fourni."
+        })
 
+        # Couleurs par défaut si oubliées
+        if "sous_scores" in result:
+            for k, v in result["sous_scores"].items():
+                if isinstance(v, dict) and "note" in v:
+                    v.setdefault("couleur", color_for(v["note"]))
         if "score_global" in result:
             result.setdefault("couleur_global", color_for(result["score_global"]))
+
+        # Transparence si tronqué
+        result["texte_tronque"] = texte_tronque
+        if texte_tronque:
+            result["limites_analyse"].append(
+                f"Analyse effectuée sur un extrait (max 8 000 caractères). Les résultats peuvent être partiels."
+            )
 
         return jsonify(result)
 
     except TimeoutError:
         return jsonify({"error": "Analyse trop longue. Réessaie avec un texte plus court."}), 500
-
     except Exception as e:
-        print("❌ Erreur GPT:", e)
+        print("❌ Erreur:", e)
         return jsonify({"error": str(e)}), 500
 
-# --- Lancement local ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

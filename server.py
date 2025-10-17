@@ -1,29 +1,28 @@
-import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # <-- Autorise toutes les origines
+CORS(
+    app,
+    resources={r"/analyze": {"origins": ["*"]}},  # ou restreins à weweb.app si tu préfères
+    methods=["POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"]
+)
 
-@app.route("/ping")
-def ping():
-    return "Serveur OK"
-
-@app.route("/analyze", methods=["POST"])
+@app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
-    data = request.get_json()
+    if request.method == "OPTIONS":
+        return ("", 204)
+    data = request.get_json(force=True)
     text = data.get("text", "")
-    # Exemple JSON complet
+    # ... ta logique existante, renvoyant déjà le JSON structuré ...
     return jsonify({
-        "score_global": 75,
-        "sous_scores": {
-            "fiabilite": 80,
-            "rigueur_argumentative": 70,
-            "coherence": 75
-        },
-        "commentaire": "Exemple de texte simulé",
-        "resume": "Texte clair avec quelques points à améliorer"
+        "score_global": 0.82,
+        "sous_scores": {"fiabilite": 0.8, "coherence": 0.85, "rigueur": 0.78},
+        "commentaire": "OK",
+        "resume": "..."
     })
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))  # Render fournit le port via cette variable

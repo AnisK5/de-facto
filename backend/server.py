@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
 import os, signal, json, re
@@ -12,6 +12,8 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 # ---------------------------
 # OpenAI client (clé en var d'env OPENAI_API_KEY)
 # ---------------------------
+from dotenv import load_dotenv
+load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ---------------------------
@@ -30,14 +32,6 @@ def color_for(score: int) -> str:
     if score >= 40: return "🟡"
     return "🔴"
 
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({
-        "message": "De Facto v1.8 (Fond/Forme + recherche interne + scorecard)",
-        "routes": ["/analyze (POST)"],
-        "hint": "POST { text: '<texte ou url>' }"
-    })
-
 # ---------------------------
 # Route principale
 # ---------------------------
@@ -46,7 +40,7 @@ def analyze():
     if request.method == "OPTIONS":
         return ("", 204)
 
-    payload = request.get_json(force=True)
+    payload = request.get_json(silent=True) or {}
     text = (payload.get("text") or "").strip()
     if not text:
         return jsonify({"error": "Aucun texte reçu"}), 400
@@ -59,7 +53,7 @@ def analyze():
         texte_tronque = True
         text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
 
-    # Prompt : axes Fond/Forme + recherche interne simulée + limites séparées
+    # Prompt principal
     prompt = f"""
 Tu es De Facto, un baromètre d’analyse de fiabilité des contenus.
 Objectif : produire une scorecard claire (score global + 4 sous-notes) et des détails pliables.
@@ -122,7 +116,7 @@ Texte à analyser :
 """
 
     try:
-        signal.alarm(25)  # garde-fou Render
+        signal.alarm(25)
 
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -130,13 +124,13 @@ Texte à analyser :
                 {"role": "system", "content": "Tu es un analyste textuel rigoureux, concis et transparent."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3  # stabilité des notes
+            temperature=0.3
         )
         signal.alarm(0)
 
         raw = resp.choices[0].message.content.strip()
 
-        # Parsing JSON tolérant (extrait le plus grand bloc {...})
+        # Parsing JSON tolérant
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
@@ -145,7 +139,7 @@ Texte à analyser :
                 return jsonify({"error": "Réponse GPT non conforme (non JSON)."}), 500
             result = json.loads(m.group(0))
 
-        # Valeurs par défaut & réparations légères
+        # Valeurs par défaut
         result.setdefault("confiance_analyse", 80)
         result.setdefault("limites_analyse_ia", [])
         result.setdefault("limites_analyse_contenu", [])
@@ -159,18 +153,15 @@ Texte à analyser :
             "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
         })
 
-        # Couleurs : si absentes, on calcule
-        try:
-            if "score_global" in result:
-                result.setdefault("couleur_global", color_for(int(result["score_global"])))
-            axes = result.get("axes", {})
-            for bloc in ("fond", "forme"):
-                if bloc in axes and isinstance(axes[bloc], dict):
-                    for crit in axes[bloc].values():
-                        if isinstance(crit, dict) and "note" in crit:
-                            crit.setdefault("couleur", color_for(int(crit["note"])))
-        except Exception:
-            pass
+        # Couleurs
+        if "score_global" in result:
+            result.setdefault("couleur_global", color_for(int(result["score_global"])))
+        axes = result.get("axes", {})
+        for bloc in ("fond", "forme"):
+            if bloc in axes and isinstance(axes[bloc], dict):
+                for crit in axes[bloc].values():
+                    if isinstance(crit, dict) and "note" in crit:
+                        crit.setdefault("couleur", color_for(int(crit["note"])))
 
         # Transparence si texte tronqué
         result["texte_tronque"] = texte_tronque
@@ -187,5 +178,27 @@ Texte à analyser :
         print("❌ Erreur:", e)
         return jsonify({"error": str(e)}), 500
 
+
+# ---------------------------
+# Serve frontend only in Replit / dev mode
+# ---------------------------
+if os.getenv("REPL_ID"):
+    @app.route("/")
+    def serve_frontend():
+        return send_from_directory(os.path.join(os.getcwd(), "frontend"), "index.html")
+
+    @app.route("/<path:path>")
+    def serve_static(path):
+        frontend_path = os.path.join(os.getcwd(), "frontend")
+        file_path = os.path.join(frontend_path, path)
+        if os.path.exists(file_path):
+            return send_from_directory(frontend_path, path)
+        else:
+            return send_from_directory(frontend_path, "index.html")
+
+
+# ---------------------------
+# Run app
+# ---------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

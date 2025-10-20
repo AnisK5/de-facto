@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>De Facto – Baromètre de Fiabilité</title>
+  <style>
+    :root{--bg:#f6f8fb;--card:#fff;--text:#222;--muted:#667;--primary:#0a4a9a;--ok:#14a44d;--warn:#f4a100;--bad:#d33c3c;--bar:#e9eef6}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0}
+    header{background:#0e1117;color:#fff;text-align:center;padding:1.5rem}
+    main{max-width:920px;margin:2rem auto;padding:0 1rem}
+    textarea{width:100%;min-height:160px;border:1px solid #cdd7e1;border-radius:10px;padding:12px;font-size:15px;background:#fff}
+    button{background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:15px;margin-top:10px;cursor:pointer}
+    button:hover{filter:brightness(1.05)}
+    .result{margin-top:18px;background:var(--card);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.06);padding:18px}
+    .banner{background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:10px;border-radius:8px;margin-bottom:12px}
+    .scoregrid{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}
+    .circle{width:140px;height:140px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;border:8px solid #e8edf5;background:#fff}
+    .ok{border-color:var(--ok)} .warn{border-color:var(--warn)} .bad{border-color:var(--bad)}
+    .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .card{background:#fff;border:1px solid #e7eef6;border-radius:10px;padding:12px}
+    .label{display:flex;align-items:center;gap:8px;font-weight:600}
+    .bar{height:10px;background:var(--bar);border-radius:999px;overflow:hidden;margin-top:6px}
+    .fill{height:100%}
+    .fill.ok{background:var(--ok)} .fill.warn{background:var(--warn)} .fill.bad{background:var(--bad)}
+    .muted{color:var(--muted)}
+    .toggle{margin-top:14px;background:#eef3fb;color:#0a3a7a;border:1px solid #cfe0ff}
+    .details{display:none;margin-top:14px}
+    .section{margin-top:16px}
+    blockquote{background:#f7f9fc;border-left:4px solid var(--primary);margin:8px 0;padding:8px 12px;font-style:italic}
+    ul{margin:8px 0 0 18px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧠 De Facto</h1>
+    <p>Baromètre de fiabilité et de rigueur argumentative</p>
+  </header>
+
+  <main>
+    <textarea id="inputText" placeholder="Collez un article, un post, ou un extrait…"></textarea>
+    <button id="analyzeBtn">Analyser</button>
+    <div id="result" class="result"></div>
+  </main>
+
+  <script>
+    const API = "https://de-facto-backend-1lf5.onrender.com/analyze";
+    const $ = (s)=>document.querySelector(s);
+    const resultDiv = $("#result");
+
+    $("#analyzeBtn").onclick = async ()=>{
+      const text = $("#inputText").value.trim();
+      if(!text){ alert("Merci d’entrer un texte."); return; }
+      resultDiv.innerHTML = "⏳ Analyse en cours…";
+
+      try{
+        const r = await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
+        const data = await r.json();
+        if(!r.ok || data.error){ throw new Error(data.error || ("HTTP "+r.status)); }
+        render(data);
+      }catch(e){
+        resultDiv.innerHTML = `<div class="banner" style="background:#fde2e1;border-color:#f5b5b0;color:#842029">❌ ${e.message}</div>`;
+      }
+    };
+
+    function render(d){
+      resultDiv.innerHTML = "";
+
+      if(d.texte_tronque){
+        resultDiv.insertAdjacentHTML("beforeend",
+          `<div class="banner">⚠️ <b>Attention :</b> texte long — seuls les premiers <b>8 000 caractères</b> ont été analysés.</div>`);
+      }
+
+      const globalCls = emojiClass(d.couleur_global);
+      const scoreTop = `
+        <div class="scoregrid">
+          <div class="circle ${globalCls}">${safeNum(d.score_global)} / 100</div>
+          <div>
+            <p class="muted"><b>Confiance :</b> ${safeNum(d.confiance_analyse)}%</p>
+            <p><b>Commentaire :</b> ${esc(d.commentaire||"")}</p>
+            <p class="muted"><i>${esc(d.resume||"")}</i></p>
+          </div>
+        </div>
+      `;
+
+      const fond = d.axes?.fond || {};
+      const forme = d.axes?.forme || {};
+
+      const cols = `
+        <div class="cols">
+          <div class="card">
+            <h3>FOND</h3>
+            ${barRow("Justesse", fond.justesse)}
+            ${barRow("Complétude", fond.completude)}
+          </div>
+          <div class="card">
+            <h3>FORME</h3>
+            ${barRow("Ton", forme.ton)}
+            ${barRow("Sophismes", forme.sophismes)}
+          </div>
+        </div>
+        <button class="toggle" onclick="toggleDetails()">Voir les détails & la méthode ↓</button>
+      `;
+
+      const details = `
+        <div class="details" id="details">
+          ${detailBlock("Justesse", fond.justesse)}
+          ${detailBlock("Complétude", fond.completude)}
+          ${detailBlock("Ton", forme.ton)}
+          ${detailBlock("Sophismes", forme.sophismes)}
+
+          ${Array.isArray(d.recherches_effectuees) && d.recherches_effectuees.length ? `
+            <div class="section">
+              <h3>🔎 Recherches internes effectuées</h3>
+              <ul>${d.recherches_effectuees.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+            </div>` : ""}
+
+          ${Array.isArray(d.limites_analyse_contenu) && d.limites_analyse_contenu.length ? `
+            <div class="section">
+              <h3>⚠️ Limites du texte analysé</h3>
+              <ul>${d.limites_analyse_contenu.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+            </div>` : ""}
+
+          ${Array.isArray(d.limites_analyse_ia) && d.limites_analyse_ia.length ? `
+            <div class="section">
+              <h3>⚠️ Limites de l’analyse IA</h3>
+              <ul>${d.limites_analyse_ia.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+            </div>` : ""}
+
+          ${d.methode ? `
+            <div class="section">
+              <h3>🧠 Méthode De Facto</h3>
+              <p><b>Principe :</b> ${esc(d.methode.principe||"")}</p>
+              ${d.methode.criteres ? `<ul>
+                ${Object.entries(d.methode.criteres).map(([k,v])=>`<li><b>${esc(cap(k))} :</b> ${esc(v)}</li>`).join("")}
+              </ul>`:""}
+              <p class="muted"><b>Avertissement :</b> ${esc(d.methode.avertissement||"")}</p>
+            </div>` : ""}
+        </div>
+      `;
+
+      resultDiv.insertAdjacentHTML("beforeend", scoreTop + cols + details);
+    }
+
+    // ===== UI helpers =====
+    function emojiClass(e){ if(e==="🟢")return"ok"; if(e==="🟡")return"warn"; if(e==="🔴")return"bad"; return""; }
+    function colorFromScore(n){ if(n>=70)return"🟢"; if(n>=40)return"🟡"; return"🔴"; }
+    function barRow(label, crit){
+      if(!crit || typeof crit.note!=="number"){
+        return `<div class="row"><div class="label">${esc(label)} <span class="muted">–</span></div><div class="bar"><div class="fill" style="width:0%"></div></div></div>`;
+      }
+      const note = Math.max(0, Math.min(100, crit.note));
+      const emoji = crit.couleur || colorFromScore(note);
+      const cls = emojiClass(emoji);
+      return `
+        <div class="row">
+          <div class="label">${esc(label)} · <b>${note}</b>/100 <span>${emoji}</span></div>
+          <div class="bar"><div class="fill ${cls}" style="width:${note}%"></div></div>
+        </div>
+      `;
+    }
+    function detailBlock(label, crit){
+      if(!crit) return "";
+      const head = `${esc(label)} ${crit.couleur?`<span>${crit.couleur}</span>`:""}`;
+      return `
+        <div class="section">
+          <h3>${head}</h3>
+          <p><b>Justification :</b> ${esc(crit.justification || "—")}</p>
+          ${crit.citation ? `<blockquote>« ${esc(crit.citation)} »</blockquote>` : ""}
+        </div>
+      `;
+    }
+    function toggleDetails(){
+      const el = document.getElementById("details");
+      const btn = document.querySelector(".toggle");
+      const open = el.style.display==="block";
+      el.style.display = open ? "none" : "block";
+      btn.textContent = open ? "Voir les détails & la méthode ↓" : "Masquer les détails ↑";
+    }
+    function safeNum(v){ return (typeof v==="number" && isFinite(v)) ? v : "–"; }
+    function cap(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
+    function esc(str){ return (str||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m])); }
+  </script>
+</body>
+</html>

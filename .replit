@@ -1,1 +1,8 @@
 run = "cd backend && python3 server.py"
+modules = ["web", "python-3.11"]
+
+[nix]
+channel = "stable-25_05"
+
+[agent]
+expertMode = true

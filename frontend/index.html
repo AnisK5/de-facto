@@ -1,10 +1,18 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>De Facto – Baromètre de Fiabilité</title>
+
+  <!-- ✅ Chart.js pour le radar -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
+    /* -------------------------------------
+       🎨 BASE DESIGN — neutre et journalistique
+    ------------------------------------- */
     :root {
       --bg: #f6f8fb;
       --card: #fff;
@@ -14,12 +22,11 @@
       --ok: #14a44d;
       --warn: #f4a100;
       --bad: #d33c3c;
-      --bar: #e9eef6;
-      --note: #e7eef6;
+      --border: #dde2ea;
     }
 
     body {
-      font-family: system-ui, Segoe UI, Arial, sans-serif;
+      font-family: system-ui, "Segoe UI", Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
       margin: 0;
@@ -32,8 +39,13 @@
       padding: 1.5rem;
     }
 
+    header h1 {
+      margin: 0;
+      font-size: 1.8rem;
+    }
+
     main {
-      max-width: 920px;
+      max-width: 960px;
       margin: 2rem auto;
       padding: 0 1rem;
     }
@@ -41,11 +53,12 @@
     textarea {
       width: 100%;
       min-height: 160px;
-      border: 1px solid #cdd7e1;
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 12px;
       font-size: 15px;
       background: #fff;
+      resize: vertical;
     }
 
     button {
@@ -53,23 +66,63 @@
       color: #fff;
       border: none;
       border-radius: 8px;
-      padding: 10px 16px;
+      padding: 10px 18px;
       font-size: 15px;
       margin-top: 10px;
       cursor: pointer;
+      transition: background 0.2s;
     }
 
-    button:hover { filter: brightness(1.05); }
+    button:hover {
+      background: #0c5ed0;
+    }
 
     .result {
-      margin-top: 18px;
+      margin-top: 22px;
       background: var(--card);
       border-radius: 12px;
       box-shadow: 0 6px 24px rgba(0, 0, 0, .06);
-      padding: 18px;
+      padding: 24px;
     }
 
-    .banner {
+    /* -------------------------------------
+       🧠 SYNTHÈSE CONTEXTUELLE
+    ------------------------------------- */
+    .synthese {
+      font-size: 1.1rem;
+      background: #f3f6fc;
+      border-left: 4px solid var(--primary);
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 18px;
+    }
+
+    /* -------------------------------------
+       📊 RADAR CHART
+    ------------------------------------- */
+    .chart-container {
+      width: 340px;
+      margin: 0 auto 18px auto;
+    }
+
+    /* -------------------------------------
+       🧾 SCORECARD
+    ------------------------------------- */
+    .score-top {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .score-top .note {
+      font-size: 2.4rem;
+      font-weight: bold;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .alert {
       background: #fff3cd;
       border: 1px solid #ffeeba;
       color: #856404;
@@ -78,74 +131,30 @@
       margin-bottom: 12px;
     }
 
-    .scoregrid {
-      display: grid;
-      grid-template-columns: 180px 1fr;
-      gap: 18px;
-      align-items: center;
-    }
-
-    .circle {
-      width: 140px;
-      height: 140px;
-      border-radius: 999px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 26px;
-      font-weight: 800;
-      border: 8px solid #e8edf5;
-      background: #fff;
-    }
-
-    .ok { border-color: var(--ok); }
-    .warn { border-color: var(--warn); }
-    .bad { border-color: var(--bad); }
-
-    .cols {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-
     .card {
       background: #fff;
-      border: 1px solid #e7eef6;
+      border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 12px;
+      padding: 12px 14px;
+      margin-top: 10px;
     }
 
-    .label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-weight: 600;
+    .card h3 {
+      margin-top: 0;
+      font-size: 1.1rem;
     }
-
-    .bar {
-      height: 10px;
-      background: var(--bar);
-      border-radius: 999px;
-      overflow: hidden;
-      margin-top: 6px;
-    }
-
-    .fill { height: 100%; }
-    .fill.ok { background: var(--ok); }
-    .fill.warn { background: var(--warn); }
-    .fill.bad { background: var(--bad); }
-
-    .muted { color: var(--muted); }
 
     .toggle {
-      margin-top: 14px;
       background: #eef3fb;
-      color: #0a3a7a;
+      color: var(--primary);
       border: 1px solid #cfe0ff;
+      margin-top: 16px;
     }
 
-    .details { display: none; margin-top: 14px; }
-    .section { margin-top: 16px; }
+    .details {
+      display: none;
+      margin-top: 14px;
+    }
 
     blockquote {
       background: #f7f9fc;
@@ -154,8 +163,6 @@
       padding: 8px 12px;
       font-style: italic;
     }
-
-    ul { margin: 8px 0 0 18px; }
   </style>
 </head>
 
@@ -168,11 +175,14 @@
   <main>
     <textarea id="inputText" placeholder="Collez un article, un post, ou un extrait…"></textarea>
     <button id="analyzeBtn">Analyser</button>
+
     <div id="result" class="result"></div>
   </main>
 
   <script>
-    // 🔗 Auto-détection environnement
+    /* -------------------------------------
+       🔌 API DÉTECTION : local / replit / render
+    ------------------------------------- */
     const isLocal = window.location.hostname === "localhost" || window.location.hostname.includes("replit");
     const API = isLocal ? "/analyze" : "https://de-facto-backend.onrender.com/analyze";
     const $ = (s) => document.querySelector(s);
@@ -187,142 +197,122 @@
         const r = await fetch(API, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text })
         });
         const data = await r.json();
         if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
         render(data);
       } catch (e) {
-        resultDiv.innerHTML = `<div class="banner" style="background:#fde2e1;border-color:#f5b5b0;color:#842029">❌ ${e.message}</div>`;
+        resultDiv.innerHTML = `<div class="alert" style="background:#fde2e1;border-color:#f5b5b0;color:#842029">❌ ${e.message}</div>`;
       }
     };
 
-    // === Affichage principal ===
+    /* -------------------------------------
+       🧠 RENDU PRINCIPAL
+    ------------------------------------- */
     function render(d) {
       resultDiv.innerHTML = "";
 
-      // 🧭 Synthèse contextuelle
-      if (d.synthese_contextuelle && d.synthese_contextuelle.trim()) {
-        resultDiv.insertAdjacentHTML("beforeend", `
-          <div class="card" style="margin-bottom:18px;border-left:4px solid var(--primary)">
-            <h3>🧭 Synthèse De Facto</h3>
-            <p>${esc(d.synthese_contextuelle)}</p>
-          </div>
-        `);
-      }
-
+      // 🔸 Bandeau si texte tronqué
       if (d.texte_tronque) {
         resultDiv.insertAdjacentHTML("beforeend",
-          `<div class="banner">⚠️ <b>Attention :</b> texte long — seuls les premiers <b>8 000 caractères</b> ont été analysés.</div>`);
+          `<div class="alert">⚠️ <b>Attention :</b> texte long — seuls les premiers <b>8 000 caractères</b> ont été analysés.</div>`);
       }
 
-      const globalCls = emojiClass(d.couleur_global);
-      const scoreTop = `
-        <div class="scoregrid">
-          <div class="circle ${globalCls}">${safeNum(d.score_global)} / 100</div>
-          <div>
-            <p class="muted"><b>Confiance :</b> ${safeNum(d.confiance_analyse)}%</p>
-            <p><b>Commentaire :</b> ${esc(d.commentaire || "")}</p>
-          </div>
+      // 🔹 Synthèse contextuelle
+      resultDiv.insertAdjacentHTML("beforeend", `
+        <div class="score-top">
+          <div class="note">${safeNum(d.score_global)} / 100</div>
+          <p><b>Confiance :</b> ${safeNum(d.confiance_analyse)}%</p>
+          <p class="muted">${d.limites_analyse_ia?.[0] || "Analyse expérimentale — peut contenir des imprécisions."}</p>
         </div>
-      `;
+        ${d.synthese_contextuelle ? `<div class="synthese">${esc(d.synthese_contextuelle)}</div>` : ""}
+      `);
 
+      // 🔹 Radar Chart
       const fond = d.axes?.fond || {};
       const forme = d.axes?.forme || {};
+      const chartEl = document.createElement("div");
+      chartEl.className = "chart-container";
+      chartEl.innerHTML = `<canvas id="radarChart"></canvas>`;
+      resultDiv.appendChild(chartEl);
+      drawRadar({
+        justesse: fond.justesse?.note || 0,
+        completude: fond.completude?.note || 0,
+        ton: forme.ton?.note || 0,
+        sophismes: forme.sophismes?.note || 0
+      });
 
-      const cols = `
-        <div class="cols">
-          <div class="card">
-            <h3>FOND</h3>
-            ${barRow("Justesse", fond.justesse)}
-            ${barRow("Complétude", fond.completude)}
-          </div>
-          <div class="card">
-            <h3>FORME</h3>
-            ${barRow("Ton", forme.ton)}
-            ${barRow("Sophismes", forme.sophismes)}
-          </div>
-        </div>
-        <button class="toggle" onclick="toggleDetails()">Voir les détails & la méthode ↓</button>
-      `;
-
-      const details = `
+      // 🔹 Détails analytiques
+      resultDiv.insertAdjacentHTML("beforeend", `
+        <button class="toggle" onclick="toggleDetails()">Voir les détails ↓</button>
         <div class="details" id="details">
           ${detailBlock("Justesse", fond.justesse)}
           ${detailBlock("Complétude", fond.completude)}
           ${detailBlock("Ton", forme.ton)}
           ${detailBlock("Sophismes", forme.sophismes)}
-
-          ${Array.isArray(d.recherches_effectuees) && d.recherches_effectuees.length ? `
-            <div class="section">
-              <h3>🔎 Recherches internes effectuées</h3>
-              <ul>${d.recherches_effectuees.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-            </div>` : ""}
-
-          ${Array.isArray(d.limites_analyse_contenu) && d.limites_analyse_contenu.length ? `
-            <div class="section">
-              <h3>⚠️ Limites du texte analysé</h3>
-              <ul>${d.limites_analyse_contenu.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-            </div>` : ""}
-
-          ${Array.isArray(d.limites_analyse_ia) && d.limites_analyse_ia.length ? `
-            <div class="section">
-              <h3>⚙️ Limites de l’analyse IA</h3>
-              <ul>${d.limites_analyse_ia.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-            </div>` : ""}
+          ${d.commentaire ? `<div class="card"><b>Résumé final :</b> ${esc(d.commentaire)}</div>` : ""}
         </div>
-      `;
-
-      resultDiv.insertAdjacentHTML("beforeend", scoreTop + cols + details);
-
-      // 🔍 Éclairage contextuel (si présent)
-      if (d.eclairage_contextuel && d.eclairage_contextuel.trim()) {
-        resultDiv.insertAdjacentHTML("beforeend", `
-          <div class="section" style="background:#f8fafc;border-left:4px solid #cfe0ff;padding:12px;border-radius:8px;margin-top:18px">
-            <h3>🔍 Éclairage contextuel</h3>
-            <p>${esc(d.eclairage_contextuel)}</p>
-          </div>
-        `);
-      }
+      `);
     }
 
-    // === UI helpers ===
-    function emojiClass(e) { if (e === "🟢") return "ok"; if (e === "🟡") return "warn"; if (e === "🔴") return "bad"; return ""; }
-    function colorFromScore(n) { if (n >= 70) return "🟢"; if (n >= 40) return "🟡"; return "🔴"; }
-    function barRow(label, crit) {
-      if (!crit || typeof crit.note !== "number") {
-        return `<div class="row"><div class="label">${esc(label)} <span class="muted">–</span></div><div class="bar"><div class="fill" style="width:0%"></div></div></div>`;
-      }
-      const note = Math.max(0, Math.min(100, crit.note));
-      const emoji = crit.couleur || colorFromScore(note);
-      const cls = emojiClass(emoji);
-      return `
-        <div class="row">
-          <div class="label">${esc(label)} · <b>${note}</b>/100 <span>${emoji}</span></div>
-          <div class="bar"><div class="fill ${cls}" style="width:${note}%"></div></div>
-        </div>
-      `;
+    /* -------------------------------------
+       📈 RADAR DRAWER
+    ------------------------------------- */
+    function drawRadar(values) {
+      const ctx = document.getElementById("radarChart");
+      new Chart(ctx, {
+        type: "radar",
+        data: {
+          labels: ["Justesse", "Complétude", "Ton", "Sophismes"],
+          datasets: [{
+            label: "Fiabilité",
+            data: Object.values(values),
+            backgroundColor: "rgba(10, 74, 154, 0.2)",
+            borderColor: "#0a4a9a",
+            borderWidth: 2,
+            pointBackgroundColor: "#0a4a9a"
+          }]
+        },
+        options: {
+          scales: {
+            r: {
+              min: 0,
+              max: 100,
+              ticks: { stepSize: 20, color: "#667" },
+              grid: { color: "#ccd" },
+              angleLines: { color: "#ccd" }
+            }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
     }
-    function detailBlock(label, crit) {
-      if (!crit) return "";
-      const head = `${esc(label)} ${crit.couleur ? `<span>${crit.couleur}</span>` : ""}`;
-      return `
-        <div class="section">
-          <h3>${head}</h3>
-          <p><b>Justification :</b> ${esc(crit.justification || "—")}</p>
-          ${crit.citation ? `<blockquote>« ${esc(crit.citation)} »</blockquote>` : ""}
-        </div>
-      `;
-    }
+
+    /* -------------------------------------
+       🧩 UI HELPERS
+    ------------------------------------- */
     function toggleDetails() {
       const el = document.getElementById("details");
       const btn = document.querySelector(".toggle");
       const open = el.style.display === "block";
       el.style.display = open ? "none" : "block";
-      btn.textContent = open ? "Voir les détails & la méthode ↓" : "Masquer les détails ↑";
+      btn.textContent = open ? "Voir les détails ↓" : "Masquer les détails ↑";
     }
+
+    function detailBlock(label, crit) {
+      if (!crit) return "";
+      return `
+        <div class="card">
+          <h3>${esc(label)} ${crit.couleur || ""}</h3>
+          <p>${esc(crit.justification || "—")}</p>
+          ${crit.citation ? `<blockquote>« ${esc(crit.citation)} »</blockquote>` : ""}
+        </div>
+      `;
+    }
+
     function safeNum(v) { return (typeof v === "number" && isFinite(v)) ? v : "–"; }
-    function esc(str) { return (str || "").replace(/[&<>"']/g, m => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"}[m])); }
+    function esc(str) { return (str || "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m])); }
   </script>
 </body>
 </html>

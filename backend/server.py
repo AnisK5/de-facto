@@ -78,69 +78,107 @@ def analyze():
     # 🧠 Prompt enrichi
     # ======================================================
     prompt = f"""
-Tu es **De Facto**, un baromètre d’analyse journalistique fiable et clair.
+    Tu es **De Facto**, un baromètre d’analyse de fiabilité journalistique et argumentative.  
+    Ta mission : évaluer la rigueur, l’équilibre et la clarté d’un texte selon une approche de fact-checking.
 
-Objectif : produire une fiche lisible, structurée et contextualisée :
-1️⃣ Synthèse générale (forces/faiblesses principales)
-2️⃣ Scorecard complète : FOND (justesse + complétude) / FORME (ton + sophismes)
-3️⃣ Limites et transparence
+    Tu rédiges des analyses **courtes, journalistiques et utiles** — qui apprennent quelque chose au lecteur.
 
-Grille de notation :
-- FOND (60 %) :
-  • Justesse : précision factuelle, attribution claire.
-  • Complétude : pluralité des points de vue, contexte manquant.
-- FORME (40 %) :
-  • Ton : neutralité lexicale, absence de charge émotionnelle.
-  • Sophismes : erreurs logiques, généralisations.
+    ---
 
-Procédure :
-- Donne un score 0–100 pour chaque sous-critère.
-- Calcule le score global pondéré.
-- Rédige une **synthèse_contextuelle** (3–5 phrases max) :
-  style journalistique, pas scolaire ;
-  résumé lisible des forces/faiblesses ;
-  mentionne si des éléments clés manquent.
-- Si activé, ajoute un champ **eclairage_contextuel** :
-  un court paragraphe sur l’impact de ces manques sur la compréhension.
-- Mentionne dans "limites_analyse_contenu" si le texte est tronqué.
-- Ajoute dans "limites_analyse_ia" une note d’honnêteté :
-  "Analyse expérimentale : De Facto est en amélioration continue."
+    ## 🎯 OBJECTIF
+    Produis une **synthèse claire et structurée**, puis une **scorecard lisible**.  
+    Tu dois analyser le texte comme le ferait un journaliste de médias tels que *France Info*, *Reuters* ou *Le Monde*.
 
-Réponds STRICTEMENT en JSON avec les champs suivants :
-{{
-  "score_global": <int>,
-  "couleur_global": "<emoji>",
-  "synthese_contextuelle": "<texte court>",
-  "axes": {{
-    "fond": {{
-      "justesse": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<<=20 mots>"}},
-      "completude": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<<=20 mots>"}}
-    }},
-    "forme": {{
-      "ton": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<<=20 mots>"}},
-      "sophismes": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<<=20 mots>"}}
+    Axes d’analyse :
+    - **FOND** : justesse et complétude des faits
+    - **FORME** : ton et sophismes
+
+    ---
+
+    ## 🧠 MÉTHODE
+    Chaque justification doit suivre le schéma **Observation → Interprétation → Conséquence** :
+    > Exemple : “Le texte cite correctement le lieu et la date (‘Nicolas Sarkozy incarcéré à la Santé’)  
+    > mais ne mentionne pas le motif judiciaire, ce qui empêche de saisir la portée de l’événement.”
+
+    Utilise un ton **professionnel, factuel, pédagogique**.  
+    Chaque phrase doit être **dense en sens**, éviter les banalités, et illustrer **le raisonnement journalistique derrière le jugement**.
+
+    ---
+
+    ## 🧩 EXEMPLES DE RÉDACTION ATTENDUS
+
+    ### Justesse
+    ✅ “L’article décrit fidèlement les faits (‘Nicolas Sarkozy incarcéré à la Santé’) mais omet les raisons de la condamnation, ce qui limite la compréhension juridique.”  
+    ✅ “Le texte rapporte un chiffre (‘plus de 500 participants’) sans citer de source, ce qui réduit la vérifiabilité.”  
+    ✅ “Les faits mentionnés sont exacts mais reposent sur une seule déclaration non confirmée.”
+
+    ### Complétude
+    ✅ “Le texte donne la parole aux soutiens de Sarkozy mais ignore les critiques, créant un déséquilibre dans la représentation des points de vue.”  
+    ✅ “Aucune mention n’est faite des réactions politiques ou judiciaires, ce qui affaiblit la diversité du propos.”  
+    ✅ “L’analyse reste centrée sur un seul lieu, sans mise en perspective nationale ou historique.”
+
+    ### Ton
+    ✅ “L’expression ‘habitués à voir défiler des célébrités’ introduit une ironie implicite qui altère la neutralité du ton.”  
+    ✅ “Le ton reste mesuré, descriptif, sans jugements de valeur explicites.”  
+    ✅ “Des termes chargés (‘scandale’, ‘indignation générale’) traduisent une intention émotionnelle.”
+
+    ### Sophismes
+    ✅ “L’article généralise (‘les habitants sont indifférents’) à partir de deux témoignages isolés — une inférence fragile.”  
+    ✅ “Présente une corrélation (‘plus de circulation depuis l’incarcération’) comme une causalité.”  
+    ✅ “Suppose que l’absence de réaction publique équivaut à une approbation tacite, sans preuve.”
+
+    ---
+
+    ## 🧩 ÉVITER ABSOLUMENT
+    ❌ Phrases plates : “Le texte est correct / neutre / bien rédigé.”  
+    ❌ Répétitions sans nuance.  
+    ❌ Langage scolaire (“cela montre que”, “l’auteur fait ceci”).  
+    ❌ Évaluations morales (“l’auteur a raison / tort”).  
+
+    ---
+
+    ## 🧾 STRUCTURE DU RÉSULTAT ATTENDU (JSON STRICT)
+
+    Réponds **exclusivement** au format JSON suivant, sans ajout de texte ou commentaire :
+
+    {{
+      "score_global": <int>,
+      "couleur_global": "<emoji>",
+      "synthese_contextuelle": "<3 phrases maximum — résumé éditorial clair, expliquant les points forts, les limites et la tonalité générale du texte.>",
+      "axes": {{
+        "fond": {{
+          "justesse": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase complète et nuancée>", "citation": "<extrait ou null>"}},
+          "completude": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase complète et nuancée>", "citation": "<extrait ou null>"}}
+        }},
+        "forme": {{
+          "ton": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase complète et nuancée>", "citation": "<extrait ou null>"}},
+          "sophismes": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase complète et nuancée>", "citation": "<extrait ou null>"}}
+        }}
+      }},
+      "commentaire": "<2 phrases synthétiques sur les forces et les faiblesses principales>",
+      "confiance_analyse": <int>,
+      "limites_analyse_ia": [
+        "Analyse expérimentale : De Facto est en amélioration continue.",
+        "Pas d’accès web temps réel ni de vérification des sources externes."
+      ],
+      "methode": {{
+        "principe": "De Facto évalue un texte selon FOND (justesse, complétude) et FORME (ton, sophismes).",
+        "criteres": {{
+          "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
+          "forme": "Ton (neutralité lexicale) et sophismes (raisonnements fallacieux)."
+        }},
+        "avertissement": "Analyse basée uniquement sur le texte fourni."
+      }}
     }}
-  }},
-  "commentaire": "<phrase courte>",
-  "confiance_analyse": <int>,
-  "limites_analyse_ia": ["<texte>", "..."],
-  "limites_analyse_contenu": ["<texte>", "..."],
-  "recherches_effectuees": ["<texte>", "..."],
-  "methode": {{
-    "principe": "De Facto évalue un texte selon FOND (justesse, complétude) et FORME (ton, sophismes).",
-    "criteres": {{
-      "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
-      "forme": "Ton (neutralité) et sophismes (raisonnements fallacieux)."
-    }},
-    "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
-  }}
-}}
 
-Texte :
----
-{text}
----
-"""
+    ---
+
+    ## TEXTE À ANALYSER :
+    ---
+    {text}
+    ---
+    """
+
 
     try:
         signal.alarm(30)
@@ -206,6 +244,14 @@ Texte :
 
 
 # ======================================================
+# Health check (toujours disponible pour Render/Cloud Run)
+# ======================================================
+@app.route("/health")
+def health():
+    return jsonify({"status": "healthy"}), 200
+
+
+# ======================================================
 # Diagnostic / version
 # ======================================================
 @app.route("/version")
@@ -214,13 +260,30 @@ def version():
 
 
 # ======================================================
-# Frontend (Replit uniquement)
+# Routes principales
+# ======================================================
+@app.route("/")
+def home():
+    # En Replit : sert le frontend
+    if os.getenv("REPL_ID"):
+        return send_from_directory(os.path.join(os.getcwd(), "frontend"), "index.html")
+    # En production (Render/Cloud Run) : retourne info API
+    else:
+        return jsonify({
+            "message": "De Facto API v2.1",
+            "status": "✅ actif",
+            "endpoints": {
+                "/analyze": "POST - Analyse de texte",
+                "/version": "GET - Version de l'API",
+                "/health": "GET - Health check"
+            }
+        })
+
+
+# ======================================================
+# Frontend statique (Replit uniquement)
 # ======================================================
 if os.getenv("REPL_ID"):
-    @app.route("/")
-    def serve_frontend():
-        return send_from_directory(os.path.join(os.getcwd(), "frontend"), "index.html")
-
     @app.route("/<path:path>")
     def serve_static(path):
         frontend_path = os.path.join(os.getcwd(), "frontend")

@@ -203,7 +203,11 @@
   </main>
 
   <script>
-    const API = "/analyze";
+    // 🧠 Auto-détection de l'environnement (local / Replit / Render)
+    const isLocal = window.location.hostname === "localhost" ||   window.location.hostname.includes("replit");
+    const API = isLocal 
+      ? "/analyze" 
+      : "https://de-facto-backend.onrender.com/analyze";
     const $ = (s) => document.querySelector(s);
     const resultDiv = $("#result");
 

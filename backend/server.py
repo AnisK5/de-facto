@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
 import os, signal, json, re
+from dotenv import load_dotenv
 
 # ---------------------------
 # Flask + CORS
@@ -12,12 +13,11 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 # ---------------------------
 # OpenAI client (clé en var d'env OPENAI_API_KEY)
 # ---------------------------
-from dotenv import load_dotenv
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ---------------------------
-# Timeout hard (Render) pour éviter les requêtes bloquantes
+# Timeout (Render)
 # ---------------------------
 def _timeout_handler(signum, frame):
     raise TimeoutError("Analyse trop longue (timeout Render).")
@@ -45,7 +45,6 @@ def analyze():
     if not text:
         return jsonify({"error": "Aucun texte reçu"}), 400
 
-    # Tronquage protecteur (stabilité Render)
     MAX_LEN = 8000
     texte_tronque = False
     original_length = len(text)
@@ -53,49 +52,82 @@ def analyze():
         texte_tronque = True
         text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
 
-    # Prompt principal
+    # Mode enrichi activé
+    ENABLE_ENRICHED = True
+
+    # Prompt principal enrichi
     prompt = f"""
-Tu es De Facto, un baromètre d’analyse de fiabilité des contenus.
-Objectif : produire une scorecard claire (score global + 4 sous-notes) et des détails pliables.
+Tu es **De Facto**, un baromètre d’analyse de fiabilité des contenus publics.
 
-Grille d’évaluation :
-- FOND :
-  • Justesse = précision des faits, attribution claire, sources identifiables.
-  • Complétude = pluralité des points de vue, contre-arguments, nuance.
-- FORME :
-  • Ton = neutralité lexicale, faible charge émotionnelle.
-  • Sophismes = présence de raisonnements fallacieux (généralisations, appels à l’émotion, etc.).
+Ta mission : produire une **analyse vivante, concrète et comparative** du texte suivant.
+L’objectif est d’aider à comprendre la fiabilité réelle, pas seulement à donner des notes.
 
-Procédé interne pour stabiliser :
-- Effectue DEUX micro-analyses indépendantes puis rends la moyenne (arrondie) des notes.
-- Notes sur 100. Couleurs : 🟢 >=70 ; 🟡 40–69 ; 🔴 <40.
+---
 
-Recherche interne simulée :
-- Identifie 1–3 éléments clés à compléter/vérifier.
-- Appuie-toi sur tes connaissances internes (jusqu’en 2024/2025) pour contextualiser brièvement.
-- Si non concluante, indique-le clairement.
+### 🎯 Grille d’évaluation
+- **FOND**
+  • Justesse → Vérifie la précision factuelle, les sources implicites, les affirmations vérifiables.  
+    → Donne un exemple précis du texte et, si possible, situe-le par rapport à ce qui est connu publiquement (autres médias, faits récents).  
+  • Complétude → Évalue la pluralité des points de vue, la prise en compte de contre-arguments, la nuance.  
+    → Identifie clairement ce qui manque.
 
-Limites (séparées) :
-- limites_analyse_ia = ce que TON analyse ne peut pas garantir (pas d’accès web temps réel, ambiguités, etc.).
-- limites_analyse_contenu = limites du TEXTE (extrait, un seul point de vue, absence de sources, etc.).
+- **FORME**
+  • Ton → Analyse la neutralité lexicale, repère les signaux émotionnels ou partisans.  
+    → Donne un exemple de formulation typique.  
+  • Sophismes → Détecte les raisonnements fallacieux (généralisations, appels à l’émotion, causalités douteuses).  
+    → Explique brièvement leur effet sur la fiabilité.
 
-Réponds STRICTEMENT en JSON (rien d’autre) au format :
+---
+
+### 🔍 Contexte simulé
+Si tu connais des faits publics (2024–2025) liés au sujet, tu peux t’y référer brièvement
+(ex : “selon Le Monde, l’affaire concernait…”, ou “d’autres médias ont rapporté…”).  
+Tu ne fais PAS de recherche web, tu t’appuies sur ta mémoire interne.
+
+---
+
+### 💡 Sortie demandée
+Réponds STRICTEMENT en JSON, au format suivant :
+
 {{
   "score_global": <int>,
   "couleur_global": "<emoji>",
   "axes": {{
     "fond": {{
-      "justesse": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}},
-      "completude": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}}
+      "justesse": {{
+        "note": <int>, "couleur": "<emoji>",
+        "justification": "<phrase précise et concrète>",
+        "citation": "<<=20 mots>",
+        "comparaison": "<référence à des faits connus ou contexte>"
+      }},
+      "completude": {{
+        "note": <int>, "couleur": "<emoji>",
+        "justification": "<phrase concrète sur la pluralité manquante ou présente>",
+        "citation": "<<=20 mots>",
+        "comparaison": "<élément contextuel ou manquant>"
+      }}
     }},
     "forme": {{
-      "ton": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}},
-      "sophismes": {{"note": <int>, "couleur": "<emoji>", "justification": "<1 phrase>", "citation": "<<=20 mots ou null>"}}
+      "ton": {{
+        "note": <int>, "couleur": "<emoji>",
+        "justification": "<phrase concrète sur le ton>",
+        "citation": "<<=20 mots>"
+      }},
+      "sophismes": {{
+        "note": <int>, "couleur": "<emoji>",
+        "justification": "<phrase claire expliquant le biais>",
+        "citation": "<<=20 mots>"
+      }}
     }}
   }},
   "commentaire": "<2 phrases max : forces/faiblesses>",
   "resume": "<3 phrases max>",
   "confiance_analyse": <int>,
+  "eclairage": {{
+    "faits_complementaires": ["<faits publics connus>", "..."],
+    "manques_identifies": ["<points clés absents du texte>", "..."],
+    "impact_sur_fiabilite": "<phrase claire sur la conséquence des manques>"
+  }},
   "limites_analyse_ia": ["<texte>", "..."],
   "limites_analyse_contenu": ["<texte>", "..."],
   "recherches_effectuees": ["<résumé court>", "..."],
@@ -109,6 +141,8 @@ Réponds STRICTEMENT en JSON (rien d’autre) au format :
   }}
 }}
 
+---
+
 Texte à analyser :
 ---
 {text}
@@ -121,16 +155,15 @@ Texte à analyser :
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un analyste textuel rigoureux, concis et transparent."},
+                {"role": "system", "content": "Tu es un analyste textuel rigoureux, concret et pédagogue."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3
+            temperature=0.4
         )
         signal.alarm(0)
 
         raw = resp.choices[0].message.content.strip()
 
-        # Parsing JSON tolérant
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
@@ -141,6 +174,11 @@ Texte à analyser :
 
         # Valeurs par défaut
         result.setdefault("confiance_analyse", 80)
+        result.setdefault("eclairage", {
+            "faits_complementaires": [],
+            "manques_identifies": [],
+            "impact_sur_fiabilite": ""
+        })
         result.setdefault("limites_analyse_ia", [])
         result.setdefault("limites_analyse_contenu", [])
         result.setdefault("recherches_effectuees", [])
@@ -163,9 +201,8 @@ Texte à analyser :
                     if isinstance(crit, dict) and "note" in crit:
                         crit.setdefault("couleur", color_for(int(crit["note"])))
 
-        # Transparence si texte tronqué
-        result["texte_tronque"] = texte_tronque
         if texte_tronque:
+            result["texte_tronque"] = True
             result["limites_analyse_contenu"].append(
                 f"Analyse effectuée sur un extrait (max {MAX_LEN} caractères sur {original_length})."
             )
@@ -180,7 +217,7 @@ Texte à analyser :
 
 
 # ---------------------------
-# Serve frontend only in Replit / dev mode
+# Serve frontend in dev (Replit)
 # ---------------------------
 if os.getenv("REPL_ID"):
     @app.route("/")
@@ -202,6 +239,3 @@ if os.getenv("REPL_ID"):
 # ---------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-
-

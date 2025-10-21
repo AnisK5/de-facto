@@ -222,6 +222,16 @@ if os.getenv("REPL_ID"):
         else:
             return send_from_directory(frontend_path, "index.html")
 
+# ---------------------------
+# Endpoint de version / diagnostic
+# ---------------------------
+@app.route("/version")
+def version():
+    return jsonify({
+        "version": "De Facto v1.9-strict",
+        "temperature": 0.2,
+        "status": "backend actif ✅"
+    })
 
 # ---------------------------
 # Run app

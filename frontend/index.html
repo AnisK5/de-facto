@@ -302,6 +302,29 @@
         </div>
       `;
 
+      // — Éclairage contextuel — 
+      if (d.eclairage && (d.eclairage.faits_complementaires?.length || d.eclairage.manques_identifies?.length || d.eclairage.impact_sur_fiabilite)) {
+        const e = d.eclairage;
+        const bloc = `
+          <div class="section card" style="margin-top:16px">
+            <h3>🔍 Éclairage contextuel</h3>
+            ${Array.isArray(e.faits_complementaires) && e.faits_complementaires.length ? `
+              <p><b>Faits complémentaires</b></p>
+              <ul>${e.faits_complementaires.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+            ` : ""}
+
+            ${Array.isArray(e.manques_identifies) && e.manques_identifies.length ? `
+              <p><b>Manques identifiés</b></p>
+              <ul>${e.manques_identifies.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+            ` : ""}
+
+            ${e.impact_sur_fiabilite ? `<p class="muted"><b>Impact sur la fiabilité :</b> ${esc(e.impact_sur_fiabilite)}</p>` : ""}
+          </div>
+        `;
+        resultDiv.insertAdjacentHTML("beforeend", bloc);
+      }
+
+      
       resultDiv.insertAdjacentHTML("beforeend", scoreTop + cols + details);
     }
 

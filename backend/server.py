@@ -57,97 +57,86 @@ def analyze():
 
     # Prompt principal enrichi
     prompt = f"""
-Tu es **De Facto**, un baromètre d’analyse de fiabilité des contenus publics.
+    Tu es **De Facto**, baromètre d’analyse de fiabilité.
 
-Ta mission : produire une **analyse vivante, concrète et comparative** du texte suivant.
-L’objectif est d’aider à comprendre la fiabilité réelle, pas seulement à donner des notes.
+    BUT : produire une analyse **utile et actionnable**, pas scolaire.
 
----
+    RÈGLES ANTI-FLOU (OBLIGATOIRES) :
+    - Interdits dans les justifications : "globalement", "semble", "peut", "pourrait", "manque de".
+    - Chaque justification doit contenir : 1 exemple précis du texte + 1 mini-conséquence sur la fiabilité.
+    - Chaque "citation" ≤ 20 mots, tirée du texte fourni.
+    - Chaque "comparaison" doit NOMMER une source/repère public (ex. “AFP”, “Le Monde”, “France Info”, “Reuters”, “d’autres médias…”) ou écrire exactement "non précisé".
+    - Si tu n’as pas d’élément, écris explicitement "non précisé" (pas d’enrobage).
 
-### 🎯 Grille d’évaluation
-- **FOND**
-  • Justesse → Vérifie la précision factuelle, les sources implicites, les affirmations vérifiables.  
-    → Donne un exemple précis du texte et, si possible, situe-le par rapport à ce qui est connu publiquement (autres médias, faits récents).  
-  • Complétude → Évalue la pluralité des points de vue, la prise en compte de contre-arguments, la nuance.  
-    → Identifie clairement ce qui manque.
+    GRILLE :
+    - FOND / Justesse : précision factuelle et attribuable. → Exige : exemple + comparaison (nommer au moins 1 source publique ou "non précisé").
+    - FOND / Complétude : pluralité, contre-arguments, contexte. → Exige : exemple de manque + ce qui aurait dû être présent.
+    - FORME / Ton : neutralité lexicale / charge émotionnelle. → Exige : expression concrète + effet (biais, sympathie implicite…).
+    - FORME / Sophismes : type exact (généralisation, appel au peuple, etc.) + micro-effet.
 
-- **FORME**
-  • Ton → Analyse la neutralité lexicale, repère les signaux émotionnels ou partisans.  
-    → Donne un exemple de formulation typique.  
-  • Sophismes → Détecte les raisonnements fallacieux (généralisations, appels à l’émotion, causalités douteuses).  
-    → Explique brièvement leur effet sur la fiabilité.
+    CONTRÔLE DE QUALITÉ :
+    - Toute phrase vague doit être reformulée avec un exemple.
+    - Pas d’affirmation “hors texte” sans balise “comparaison”.
 
----
+    SORTIE STRICTEMENT EN JSON :
 
-### 🔍 Contexte simulé
-Si tu connais des faits publics (2024–2025) liés au sujet, tu peux t’y référer brièvement
-(ex : “selon Le Monde, l’affaire concernait…”, ou “d’autres médias ont rapporté…”).  
-Tu ne fais PAS de recherche web, tu t’appuies sur ta mémoire interne.
-
----
-
-### 💡 Sortie demandée
-Réponds STRICTEMENT en JSON, au format suivant :
-
-{{
-  "score_global": <int>,
-  "couleur_global": "<emoji>",
-  "axes": {{
-    "fond": {{
-      "justesse": {{
-        "note": <int>, "couleur": "<emoji>",
-        "justification": "<phrase précise et concrète>",
-        "citation": "<<=20 mots>",
-        "comparaison": "<référence à des faits connus ou contexte>"
+    {{
+      "score_global": <int>,
+      "couleur_global": "<emoji>",
+      "axes": {{
+        "fond": {{
+          "justesse": {{
+            "note": <int>, "couleur": "<emoji>",
+            "justification": "<exemple précis + effet>",
+            "citation": "<<=20 mots>",
+            "comparaison": "<source publique nommée ou 'non précisé'>"
+          }},
+          "completude": {{
+            "note": <int>, "couleur": "<emoji>",
+            "justification": "<manque concret + ce qui devrait figurer>",
+            "citation": "<<=20 mots>",
+            "comparaison": "<élément manquant ou 'non précisé'>"
+          }}
+        }},
+        "forme": {{
+          "ton": {{
+            "note": <int>, "couleur": "<emoji>",
+            "justification": "<expression concrète + effet>",
+            "citation": "<<=20 mots>"
+          }},
+          "sophismes": {{
+            "note": <int>, "couleur": "<emoji>",
+            "justification": "<type de sophisme + pourquoi>",
+            "citation": "<<=20 mots>"
+          }}
+        }}
       }},
-      "completude": {{
-        "note": <int>, "couleur": "<emoji>",
-        "justification": "<phrase concrète sur la pluralité manquante ou présente>",
-        "citation": "<<=20 mots>",
-        "comparaison": "<élément contextuel ou manquant>"
-      }}
-    }},
-    "forme": {{
-      "ton": {{
-        "note": <int>, "couleur": "<emoji>",
-        "justification": "<phrase concrète sur le ton>",
-        "citation": "<<=20 mots>"
+      "commentaire": "<2 phrases utiles : 1 force, 1 faiblesse prioritaire>",
+      "resume": "<3 phrases max, factuel>",
+      "confiance_analyse": <int>,
+      "eclairage": {{
+        "faits_complementaires": ["<fait public connu + (source nommée ou 'non précisé')>", "..."],
+        "manques_identifies": ["<point absent qui change la lecture>", "..."],
+        "impact_sur_fiabilite": "<conséquence claire des manques>"
       }},
-      "sophismes": {{
-        "note": <int>, "couleur": "<emoji>",
-        "justification": "<phrase claire expliquant le biais>",
-        "citation": "<<=20 mots>"
+      "limites_analyse_ia": ["<texte>", "..."],
+      "limites_analyse_contenu": ["<texte>", "..."],
+      "recherches_effectuees": ["<ce que tu as tenté de compléter en interne>", "..."],
+      "methode": {{
+        "principe": "De Facto évalue un texte selon deux axes : FOND (justesse, complétude) et FORME (ton, sophismes).",
+        "criteres": {{
+          "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
+          "forme": "Ton (neutralité) et sophismes (raisonnements fallacieux)."
+        }},
+        "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
       }}
     }}
-  }},
-  "commentaire": "<2 phrases max : forces/faiblesses>",
-  "resume": "<3 phrases max>",
-  "confiance_analyse": <int>,
-  "eclairage": {{
-    "faits_complementaires": ["<faits publics connus>", "..."],
-    "manques_identifies": ["<points clés absents du texte>", "..."],
-    "impact_sur_fiabilite": "<phrase claire sur la conséquence des manques>"
-  }},
-  "limites_analyse_ia": ["<texte>", "..."],
-  "limites_analyse_contenu": ["<texte>", "..."],
-  "recherches_effectuees": ["<résumé court>", "..."],
-  "methode": {{
-    "principe": "De Facto évalue un texte selon deux axes : FOND (justesse, complétude) et FORME (ton, sophismes).",
-    "criteres": {{
-      "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
-      "forme": "Ton (neutralité) et sophismes (raisonnements fallacieux)."
-    }},
-    "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
-  }}
-}}
 
----
-
-Texte à analyser :
----
-{text}
----
-"""
+    Texte à analyser :
+    ---
+    {text}
+    ---
+    """
 
     try:
         signal.alarm(25)
@@ -158,7 +147,7 @@ Texte à analyser :
                 {"role": "system", "content": "Tu es un analyste textuel rigoureux, concret et pédagogue."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.4
+            temperature=0.2
         )
         signal.alarm(0)
 

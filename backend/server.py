@@ -3,6 +3,27 @@ from flask_cors import CORS
 from openai import OpenAI
 import os, signal, json, re
 from dotenv import load_dotenv
+import trafilatura
+
+def extract_text_from_url(url):
+    """Extrait automatiquement le texte principal d'un article avec trafilatura."""
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            print(f"⚠️ Impossible de télécharger {url}")
+            return None
+        extracted = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        if not extracted:
+            print(f"⚠️ Aucun contenu détecté sur {url}")
+            return None
+        extracted = extracted.strip()
+        if len(extracted) < 300:
+            print("⚠️ Contenu trop court, probablement une page vide.")
+            return None
+        return extracted[:8000]  # Tronquage de sécurité
+    except Exception as e:
+        print(f"❌ Erreur extraction Trafilatura : {e}")
+        return None
 
 # ---------------------------
 # Flask + CORS
@@ -16,12 +37,16 @@ CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+
 # ---------------------------
 # Timeout (Render)
 # ---------------------------
 def _timeout_handler(signum, frame):
     raise TimeoutError("Analyse trop longue (timeout Render).")
+
+
 signal.signal(signal.SIGALRM, _timeout_handler)
+
 
 # ---------------------------
 # Helpers
@@ -31,6 +56,7 @@ def color_for(score: int) -> str:
     if score >= 70: return "🟢"
     if score >= 40: return "🟡"
     return "🔴"
+
 
 # ---------------------------
 # Route principale
@@ -52,83 +78,83 @@ def analyze():
         texte_tronque = True
         text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
 
+    # 🧩 Nouvelle étape : détection et extraction d'article via trafilatura
+    if re.match(r"^https?://", text):
+        fetched = extract_text_from_url(text)
+        if fetched:
+            text = fetched
+            print("✅ Article extrait avec Trafilatura (longueur :", len(text), ")")
+        else:
+            print("⚠️ Extraction échouée ou contenu vide.")
+
+    # Sécurité : tronquer les textes très longs
+    if len(text) > MAX_LEN:
+        texte_tronque = True
+        text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
+    
     # Mode enrichi activé
     ENABLE_ENRICHED = True
 
     # Prompt principal enrichi
     prompt = f"""
-    Tu es **De Facto**, baromètre d’analyse de fiabilité.
+    Tu es De Facto, un baromètre d’analyse de fiabilité et de rigueur journalistique.
+    Tu produis une **scorecard claire et utile** (score global + 4 sous-notes), accompagnée d’un **éclairage contextuel** inspiré des pratiques fact-checking.
 
-    BUT : produire une analyse **utile et actionnable**, pas scolaire.
+    ### Objectif
+    Mesurer la **fiabilité perçue** d’un texte en analysant :
+    - la précision des faits,
+    - la diversité des points de vue,
+    - le ton employé,
+    - et la qualité argumentative.
 
-    RÈGLES ANTI-FLOU (OBLIGATOIRES) :
-    - Interdits dans les justifications : "globalement", "semble", "peut", "pourrait", "manque de".
-    - Chaque justification doit contenir : 1 exemple précis du texte + 1 mini-conséquence sur la fiabilité.
-    - Chaque "citation" ≤ 20 mots, tirée du texte fourni.
-    - Chaque "comparaison" doit NOMMER une source/repère public (ex. “AFP”, “Le Monde”, “France Info”, “Reuters”, “d’autres médias…”) ou écrire exactement "non précisé".
-    - Si tu n’as pas d’élément, écris explicitement "non précisé" (pas d’enrobage).
+    ### Échelle stricte
+    ⚠️ **Toutes les notes sont sur 100**, pas sur 10.  
+    Un texte “moyennement fiable” tourne autour de 60–70.  
+    Un texte “faible” <40.  
+    Un texte “exemplaire” >85.
 
-    GRILLE :
-    - FOND / Justesse : précision factuelle et attribuable. → Exige : exemple + comparaison (nommer au moins 1 source publique ou "non précisé").
-    - FOND / Complétude : pluralité, contre-arguments, contexte. → Exige : exemple de manque + ce qui aurait dû être présent.
-    - FORME / Ton : neutralité lexicale / charge émotionnelle. → Exige : expression concrète + effet (biais, sympathie implicite…).
-    - FORME / Sophismes : type exact (généralisation, appel au peuple, etc.) + micro-effet.
+    ### Grille d’analyse
+    **FOND :**
+    - *Justesse* → véracité, sources, précision factuelle.
+    - *Complétude* → pluralité, contre-arguments, nuances.
 
-    CONTRÔLE DE QUALITÉ :
-    - Toute phrase vague doit être reformulée avec un exemple.
-    - Pas d’affirmation “hors texte” sans balise “comparaison”.
+    **FORME :**
+    - *Ton* → neutralité lexicale, absence d’émotion.
+    - *Sophismes* → détection de généralisations, biais de causalité, appels à l’émotion.
 
-    SORTIE STRICTEMENT EN JSON :
+    ### Éclairage contextuel
+    Ajoute une section intitulée **"Éclairage contextuel"** comportant :
+    - une sous-partie **"Faits complémentaires"** : 1 à 3 rappels contextuels ou éléments connus dans la presse ou les bases factuelles internes (ex. Wikipédia, Le Monde, Reuters, etc.),
+    - une sous-partie **"Manques identifiés"** : ce que l’article omet et qui changerait la perception s’il était inclus,
+    - termine par une phrase sur **l’impact de ces manques sur la fiabilité**.
 
+    ### Format de réponse (strict JSON)
     {{
       "score_global": <int>,
       "couleur_global": "<emoji>",
       "axes": {{
         "fond": {{
-          "justesse": {{
-            "note": <int>, "couleur": "<emoji>",
-            "justification": "<exemple précis + effet>",
-            "citation": "<<=20 mots>",
-            "comparaison": "<source publique nommée ou 'non précisé'>"
-          }},
-          "completude": {{
-            "note": <int>, "couleur": "<emoji>",
-            "justification": "<manque concret + ce qui devrait figurer>",
-            "citation": "<<=20 mots>",
-            "comparaison": "<élément manquant ou 'non précisé'>"
-          }}
+          "justesse": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<20 mots max>"}},
+          "completude": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<20 mots max>"}}
         }},
         "forme": {{
-          "ton": {{
-            "note": <int>, "couleur": "<emoji>",
-            "justification": "<expression concrète + effet>",
-            "citation": "<<=20 mots>"
-          }},
-          "sophismes": {{
-            "note": <int>, "couleur": "<emoji>",
-            "justification": "<type de sophisme + pourquoi>",
-            "citation": "<<=20 mots>"
-          }}
+          "ton": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<20 mots max>"}},
+          "sophismes": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase>", "citation": "<20 mots max>"}}
         }}
       }},
-      "commentaire": "<2 phrases utiles : 1 force, 1 faiblesse prioritaire>",
-      "resume": "<3 phrases max, factuel>",
-      "confiance_analyse": <int>,
-      "eclairage": {{
-        "faits_complementaires": ["<fait public connu + (source nommée ou 'non précisé')>", "..."],
-        "manques_identifies": ["<point absent qui change la lecture>", "..."],
-        "impact_sur_fiabilite": "<conséquence claire des manques>"
+      "commentaire": "<2 phrases max : forces/faiblesses>",
+      "resume": "<3 phrases max>",
+      "eclairage_contextuel": {{
+        "faits_complementaires": ["<texte>", "..."],
+        "manques_identifies": ["<texte>", "..."],
+        "impact_fiabilite": "<phrase>"
       }},
+      "confiance_analyse": <int>,
       "limites_analyse_ia": ["<texte>", "..."],
       "limites_analyse_contenu": ["<texte>", "..."],
-      "recherches_effectuees": ["<ce que tu as tenté de compléter en interne>", "..."],
       "methode": {{
-        "principe": "De Facto évalue un texte selon deux axes : FOND (justesse, complétude) et FORME (ton, sophismes).",
-        "criteres": {{
-          "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
-          "forme": "Ton (neutralité) et sophismes (raisonnements fallacieux)."
-        }},
-        "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
+        "principe": "Analyse selon FOND (justesse, complétude) et FORME (ton, sophismes).",
+        "avertissement": "Analyse basée sur le texte fourni ; sans accès web temps réel."
       }}
     }}
 
@@ -143,12 +169,16 @@ def analyze():
 
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Tu es un analyste textuel rigoureux, concret et pédagogue."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2
-        )
+            messages=[{
+                "role":
+                "system",
+                "content":
+                "Tu es un analyste textuel rigoureux, concret et pédagogue."
+            }, {
+                "role": "user",
+                "content": prompt
+            }],
+            temperature=0.2)
         signal.alarm(0)
 
         raw = resp.choices[0].message.content.strip()
@@ -158,37 +188,46 @@ def analyze():
         except json.JSONDecodeError:
             m = re.search(r"\{.*\}", raw, re.DOTALL)
             if not m:
-                return jsonify({"error": "Réponse GPT non conforme (non JSON)."}), 500
+                return jsonify(
+                    {"error": "Réponse GPT non conforme (non JSON)."}), 500
             result = json.loads(m.group(0))
 
         # Valeurs par défaut
         result.setdefault("confiance_analyse", 80)
-        result.setdefault("eclairage", {
-            "faits_complementaires": [],
-            "manques_identifies": [],
-            "impact_sur_fiabilite": ""
-        })
+        result.setdefault(
+            "eclairage", {
+                "faits_complementaires": [],
+                "manques_identifies": [],
+                "impact_sur_fiabilite": ""
+            })
         result.setdefault("limites_analyse_ia", [])
         result.setdefault("limites_analyse_contenu", [])
         result.setdefault("recherches_effectuees", [])
-        result.setdefault("methode", {
-            "principe": "De Facto évalue un texte selon FOND (justesse, complétude) et FORME (ton, sophismes).",
-            "criteres": {
-                "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
-                "forme": "Ton (neutralité) et sophismes (raisonnements fallacieux)."
-            },
-            "avertissement": "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
-        })
+        result.setdefault(
+            "methode", {
+                "principe":
+                "De Facto évalue un texte selon FOND (justesse, complétude) et FORME (ton, sophismes).",
+                "criteres": {
+                    "fond":
+                    "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
+                    "forme":
+                    "Ton (neutralité) et sophismes (raisonnements fallacieux)."
+                },
+                "avertissement":
+                "Analyse basée sur le texte fourni ; pas d’accès web temps réel."
+            })
 
         # Couleurs
         if "score_global" in result:
-            result.setdefault("couleur_global", color_for(int(result["score_global"])))
+            result.setdefault("couleur_global",
+                              color_for(int(result["score_global"])))
         axes = result.get("axes", {})
         for bloc in ("fond", "forme"):
             if bloc in axes and isinstance(axes[bloc], dict):
                 for crit in axes[bloc].values():
                     if isinstance(crit, dict) and "note" in crit:
-                        crit.setdefault("couleur", color_for(int(crit["note"])))
+                        crit.setdefault("couleur",
+                                        color_for(int(crit["note"])))
 
         if texte_tronque:
             result["texte_tronque"] = True
@@ -199,7 +238,10 @@ def analyze():
         return jsonify(result)
 
     except TimeoutError:
-        return jsonify({"error": "Analyse trop longue. Réessaie avec un texte plus court."}), 500
+        return jsonify({
+            "error":
+            "Analyse trop longue. Réessaie avec un texte plus court."
+        }), 500
     except Exception as e:
         print("❌ Erreur:", e)
         return jsonify({"error": str(e)}), 500
@@ -209,9 +251,11 @@ def analyze():
 # Serve frontend in dev (Replit)
 # ---------------------------
 if os.getenv("REPL_ID"):
+
     @app.route("/")
     def serve_frontend():
-        return send_from_directory(os.path.join(os.getcwd(), "frontend"), "index.html")
+        return send_from_directory(os.path.join(os.getcwd(), "frontend"),
+                                   "index.html")
 
     @app.route("/<path:path>")
     def serve_static(path):
@@ -223,11 +267,10 @@ if os.getenv("REPL_ID"):
             return send_from_directory(frontend_path, "index.html")
 
 
-
-
 # ---------------------------
 # Endpoint de version / diagnostic
 # ---------------------------
+
 
 @app.route("/")
 def home():
@@ -237,6 +280,7 @@ def home():
         "routes": ["/analyze", "/version"]
     })
 
+
 @app.route("/version")
 def version():
     return jsonify({
@@ -244,6 +288,7 @@ def version():
         "temperature": 0.2,
         "status": "backend actif ✅"
     })
+
 
 # ---------------------------
 # Run app

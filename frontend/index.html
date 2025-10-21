@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="fr">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -15,27 +14,28 @@
       --ok: #14a44d;
       --warn: #f4a100;
       --bad: #d33c3c;
-      --bar: #e9eef6
+      --bar: #e9eef6;
+      --note: #e7eef6;
     }
 
     body {
       font-family: system-ui, Segoe UI, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
-      margin: 0
+      margin: 0;
     }
 
     header {
       background: #0e1117;
       color: #fff;
       text-align: center;
-      padding: 1.5rem
+      padding: 1.5rem;
     }
 
     main {
       max-width: 920px;
       margin: 2rem auto;
-      padding: 0 1rem
+      padding: 0 1rem;
     }
 
     textarea {
@@ -45,7 +45,7 @@
       border-radius: 10px;
       padding: 12px;
       font-size: 15px;
-      background: #fff
+      background: #fff;
     }
 
     button {
@@ -56,19 +56,17 @@
       padding: 10px 16px;
       font-size: 15px;
       margin-top: 10px;
-      cursor: pointer
+      cursor: pointer;
     }
 
-    button:hover {
-      filter: brightness(1.05)
-    }
+    button:hover { filter: brightness(1.05); }
 
     .result {
       margin-top: 18px;
       background: var(--card);
       border-radius: 12px;
       box-shadow: 0 6px 24px rgba(0, 0, 0, .06);
-      padding: 18px
+      padding: 18px;
     }
 
     .banner {
@@ -77,14 +75,14 @@
       color: #856404;
       padding: 10px;
       border-radius: 8px;
-      margin-bottom: 12px
+      margin-bottom: 12px;
     }
 
     .scoregrid {
       display: grid;
       grid-template-columns: 180px 1fr;
       gap: 18px;
-      align-items: center
+      align-items: center;
     }
 
     .circle {
@@ -97,39 +95,31 @@
       font-size: 26px;
       font-weight: 800;
       border: 8px solid #e8edf5;
-      background: #fff
+      background: #fff;
     }
 
-    .ok {
-      border-color: var(--ok)
-    }
-
-    .warn {
-      border-color: var(--warn)
-    }
-
-    .bad {
-      border-color: var(--bad)
-    }
+    .ok { border-color: var(--ok); }
+    .warn { border-color: var(--warn); }
+    .bad { border-color: var(--bad); }
 
     .cols {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px
+      gap: 16px;
     }
 
     .card {
       background: #fff;
       border: 1px solid #e7eef6;
       border-radius: 10px;
-      padding: 12px
+      padding: 12px;
     }
 
     .label {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-weight: 600
+      font-weight: 600;
     }
 
     .bar {
@@ -137,56 +127,35 @@
       background: var(--bar);
       border-radius: 999px;
       overflow: hidden;
-      margin-top: 6px
+      margin-top: 6px;
     }
 
-    .fill {
-      height: 100%
-    }
+    .fill { height: 100%; }
+    .fill.ok { background: var(--ok); }
+    .fill.warn { background: var(--warn); }
+    .fill.bad { background: var(--bad); }
 
-    .fill.ok {
-      background: var(--ok)
-    }
-
-    .fill.warn {
-      background: var(--warn)
-    }
-
-    .fill.bad {
-      background: var(--bad)
-    }
-
-    .muted {
-      color: var(--muted)
-    }
+    .muted { color: var(--muted); }
 
     .toggle {
       margin-top: 14px;
       background: #eef3fb;
       color: #0a3a7a;
-      border: 1px solid #cfe0ff
+      border: 1px solid #cfe0ff;
     }
 
-    .details {
-      display: none;
-      margin-top: 14px
-    }
-
-    .section {
-      margin-top: 16px
-    }
+    .details { display: none; margin-top: 14px; }
+    .section { margin-top: 16px; }
 
     blockquote {
       background: #f7f9fc;
       border-left: 4px solid var(--primary);
       margin: 8px 0;
       padding: 8px 12px;
-      font-style: italic
+      font-style: italic;
     }
 
-    ul {
-      margin: 8px 0 0 18px
-    }
+    ul { margin: 8px 0 0 18px; }
   </style>
 </head>
 
@@ -203,31 +172,44 @@
   </main>
 
   <script>
-    // 🧠 Auto-détection de l'environnement (local / Replit / Render)
-    const isLocal = window.location.hostname === "localhost" ||   window.location.hostname.includes("replit");
-    const API = isLocal 
-      ? "/analyze" 
-      : "https://de-facto-backend.onrender.com/analyze";
+    // 🔗 Auto-détection environnement
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname.includes("replit");
+    const API = isLocal ? "/analyze" : "https://de-facto-backend.onrender.com/analyze";
     const $ = (s) => document.querySelector(s);
     const resultDiv = $("#result");
 
     $("#analyzeBtn").onclick = async () => {
       const text = $("#inputText").value.trim();
-      if (!text) {alert("Merci d’entrer un texte."); return;}
+      if (!text) { alert("Merci d’entrer un texte."); return; }
       resultDiv.innerHTML = "⏳ Analyse en cours…";
 
       try {
-        const r = await fetch(API, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text})});
+        const r = await fetch(API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
         const data = await r.json();
-        if (!r.ok || data.error) {throw new Error(data.error || ("HTTP " + r.status));}
+        if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
         render(data);
       } catch (e) {
         resultDiv.innerHTML = `<div class="banner" style="background:#fde2e1;border-color:#f5b5b0;color:#842029">❌ ${e.message}</div>`;
       }
     };
 
+    // === Affichage principal ===
     function render(d) {
       resultDiv.innerHTML = "";
+
+      // 🧭 Synthèse contextuelle
+      if (d.synthese_contextuelle && d.synthese_contextuelle.trim()) {
+        resultDiv.insertAdjacentHTML("beforeend", `
+          <div class="card" style="margin-bottom:18px;border-left:4px solid var(--primary)">
+            <h3>🧭 Synthèse De Facto</h3>
+            <p>${esc(d.synthese_contextuelle)}</p>
+          </div>
+        `);
+      }
 
       if (d.texte_tronque) {
         resultDiv.insertAdjacentHTML("beforeend",
@@ -241,7 +223,6 @@
           <div>
             <p class="muted"><b>Confiance :</b> ${safeNum(d.confiance_analyse)}%</p>
             <p><b>Commentaire :</b> ${esc(d.commentaire || "")}</p>
-            <p class="muted"><i>${esc(d.resume || "")}</i></p>
           </div>
         </div>
       `;
@@ -286,51 +267,28 @@
 
           ${Array.isArray(d.limites_analyse_ia) && d.limites_analyse_ia.length ? `
             <div class="section">
-              <h3>⚠️ Limites de l’analyse IA</h3>
+              <h3>⚙️ Limites de l’analyse IA</h3>
               <ul>${d.limites_analyse_ia.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-            </div>` : ""}
-
-          ${d.methode ? `
-            <div class="section">
-              <h3>🧠 Méthode De Facto</h3>
-              <p><b>Principe :</b> ${esc(d.methode.principe || "")}</p>
-              ${d.methode.criteres ? `<ul>
-                ${Object.entries(d.methode.criteres).map(([k, v]) => `<li><b>${esc(cap(k))} :</b> ${esc(v)}</li>`).join("")}
-              </ul>`: ""}
-              <p class="muted"><b>Avertissement :</b> ${esc(d.methode.avertissement || "")}</p>
             </div>` : ""}
         </div>
       `;
 
-      // — Éclairage contextuel — 
-      if (d.eclairage && (d.eclairage.faits_complementaires?.length || d.eclairage.manques_identifies?.length || d.eclairage.impact_sur_fiabilite)) {
-        const e = d.eclairage;
-        const bloc = `
-          <div class="section card" style="margin-top:16px">
-            <h3>🔍 Éclairage contextuel</h3>
-            ${Array.isArray(e.faits_complementaires) && e.faits_complementaires.length ? `
-              <p><b>Faits complémentaires</b></p>
-              <ul>${e.faits_complementaires.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-            ` : ""}
-
-            ${Array.isArray(e.manques_identifies) && e.manques_identifies.length ? `
-              <p><b>Manques identifiés</b></p>
-              <ul>${e.manques_identifies.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-            ` : ""}
-
-            ${e.impact_sur_fiabilite ? `<p class="muted"><b>Impact sur la fiabilité :</b> ${esc(e.impact_sur_fiabilite)}</p>` : ""}
-          </div>
-        `;
-        resultDiv.insertAdjacentHTML("beforeend", bloc);
-      }
-
-      
       resultDiv.insertAdjacentHTML("beforeend", scoreTop + cols + details);
+
+      // 🔍 Éclairage contextuel (si présent)
+      if (d.eclairage_contextuel && d.eclairage_contextuel.trim()) {
+        resultDiv.insertAdjacentHTML("beforeend", `
+          <div class="section" style="background:#f8fafc;border-left:4px solid #cfe0ff;padding:12px;border-radius:8px;margin-top:18px">
+            <h3>🔍 Éclairage contextuel</h3>
+            <p>${esc(d.eclairage_contextuel)}</p>
+          </div>
+        `);
+      }
     }
 
-    // ===== UI helpers =====
-    function emojiClass(e) {if (e === "🟢") return "ok"; if (e === "🟡") return "warn"; if (e === "🔴") return "bad"; return "";}
-    function colorFromScore(n) {if (n >= 70) return "🟢"; if (n >= 40) return "🟡"; return "🔴";}
+    // === UI helpers ===
+    function emojiClass(e) { if (e === "🟢") return "ok"; if (e === "🟡") return "warn"; if (e === "🔴") return "bad"; return ""; }
+    function colorFromScore(n) { if (n >= 70) return "🟢"; if (n >= 40) return "🟡"; return "🔴"; }
     function barRow(label, crit) {
       if (!crit || typeof crit.note !== "number") {
         return `<div class="row"><div class="label">${esc(label)} <span class="muted">–</span></div><div class="bar"><div class="fill" style="width:0%"></div></div></div>`;
@@ -363,10 +321,8 @@
       el.style.display = open ? "none" : "block";
       btn.textContent = open ? "Voir les détails & la méthode ↓" : "Masquer les détails ↑";
     }
-    function safeNum(v) {return (typeof v === "number" && isFinite(v)) ? v : "–";}
-    function cap(s) {return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;}
-    function esc(str) {return (str || "").replace(/[&<>"']/g, m => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"}[m]));}
+    function safeNum(v) { return (typeof v === "number" && isFinite(v)) ? v : "–"; }
+    function esc(str) { return (str || "").replace(/[&<>"']/g, m => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"}[m])); }
   </script>
 </body>
-
 </html>

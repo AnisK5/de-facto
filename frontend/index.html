@@ -5,14 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>De Facto – Baromètre de Fiabilité</title>
-
-  <!-- ✅ Chart.js pour le radar -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   <style>
-    /* -------------------------------------
-       🎨 BASE DESIGN — neutre et journalistique
-    ------------------------------------- */
     :root {
       --bg: #f6f8fb;
       --card: #fff;
@@ -22,11 +15,11 @@
       --ok: #14a44d;
       --warn: #f4a100;
       --bad: #d33c3c;
-      --border: #dde2ea;
+      --bar: #e9eef6;
     }
 
     body {
-      font-family: system-ui, "Segoe UI", Arial, sans-serif;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
       margin: 0;
@@ -39,13 +32,8 @@
       padding: 1.5rem;
     }
 
-    header h1 {
-      margin: 0;
-      font-size: 1.8rem;
-    }
-
     main {
-      max-width: 960px;
+      max-width: 920px;
       margin: 2rem auto;
       padding: 0 1rem;
     }
@@ -53,12 +41,11 @@
     textarea {
       width: 100%;
       min-height: 160px;
-      border: 1px solid var(--border);
+      border: 1px solid #cdd7e1;
       border-radius: 10px;
       padding: 12px;
       font-size: 15px;
       background: #fff;
-      resize: vertical;
     }
 
     button {
@@ -68,92 +55,128 @@
       border-radius: 8px;
       padding: 10px 18px;
       font-size: 15px;
-      margin-top: 10px;
+      margin-top: 16px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
       cursor: pointer;
-      transition: background 0.2s;
     }
 
     button:hover {
-      background: #0c5ed0;
+      filter: brightness(1.05);
     }
 
     .result {
-      margin-top: 22px;
+      margin-top: 24px;
       background: var(--card);
       border-radius: 12px;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, .06);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.05);
       padding: 24px;
     }
 
-    /* -------------------------------------
-       🧠 SYNTHÈSE CONTEXTUELLE
-    ------------------------------------- */
-    .synthese {
-      font-size: 1.1rem;
-      background: #f3f6fc;
-      border-left: 4px solid var(--primary);
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin-bottom: 18px;
-    }
-
-    /* -------------------------------------
-       📊 RADAR CHART
-    ------------------------------------- */
-    .chart-container {
-      width: 340px;
-      margin: 0 auto 18px auto;
-    }
-
-    /* -------------------------------------
-       🧾 SCORECARD
-    ------------------------------------- */
-    .score-top {
+    .score {
       text-align: center;
-      margin-bottom: 10px;
     }
 
-    .score-top .note {
-      font-size: 2.4rem;
-      font-weight: bold;
+    .score h2 {
+      font-size: 42px;
+      margin: 0;
+      font-weight: 700;
+    }
+
+    .score p {
+      margin: 6px 0;
+      color: var(--muted);
+    }
+
+    .progress {
+      height: 10px;
+      background: #e9eef6;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 8px auto 12px;
+      width: 60%;
+      max-width: 420px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.6s ease;
+    }
+
+    .summary-box {
+      background: #f7f9fc;
+      border-left: 4px solid var(--primary);
+      padding: 14px 18px;
+      border-radius: 6px;
+      margin: 18px auto;
+      max-width: 720px;
+      line-height: 1.6;
+      font-size: 15px;
     }
 
     .muted {
       color: var(--muted);
+      font-size: 0.95em;
+      margin-top: 4px;
+      font-style: italic;
     }
 
-    .alert {
-      background: #fff3cd;
-      border: 1px solid #ffeeba;
-      color: #856404;
-      padding: 10px;
-      border-radius: 8px;
-      margin-bottom: 12px;
+    canvas {
+      display: block;
+      margin: 24px auto 8px;
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+      margin-top: 24px;
     }
 
     .card {
       background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px 14px;
-      margin-top: 10px;
+      border: 1px solid #e0e7f0;
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04);
     }
 
     .card h3 {
       margin-top: 0;
-      font-size: 1.1rem;
-    }
-
-    .toggle {
-      background: #eef3fb;
       color: var(--primary);
-      border: 1px solid #cfe0ff;
-      margin-top: 16px;
+      font-size: 17px;
+      margin-bottom: 8px;
     }
 
-    .details {
-      display: none;
-      margin-top: 14px;
+    .card b {
+      font-size: 16px;
+    }
+
+    .bar {
+      height: 10px;
+      background: var(--bar);
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 6px 0 10px;
+    }
+
+    .fill {
+      height: 100%;
+      transition: width 0.6s ease;
+    }
+
+    .fill.ok {
+      background: var(--ok);
+    }
+
+    .fill.warn {
+      background: var(--warn);
+    }
+
+    .fill.bad {
+      background: var(--bad);
     }
 
     blockquote {
@@ -162,6 +185,7 @@
       margin: 8px 0;
       padding: 8px 12px;
       font-style: italic;
+      color: #333;
     }
   </style>
 </head>
@@ -169,20 +193,18 @@
 <body>
   <header>
     <h1>🧠 De Facto</h1>
-    <p>Baromètre de fiabilité et de rigueur argumentative</p>
+    <p>Analyse de fiabilité et de rigueur médiatique</p>
   </header>
 
   <main>
     <textarea id="inputText" placeholder="Collez un article, un post, ou un extrait…"></textarea>
     <button id="analyzeBtn">Analyser</button>
-
     <div id="result" class="result"></div>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <script>
-    /* -------------------------------------
-       🔌 API DÉTECTION : local / replit / render
-    ------------------------------------- */
     const isLocal = window.location.hostname === "localhost" || window.location.hostname.includes("replit");
     const API = isLocal ? "/analyze" : "https://de-facto-backend.onrender.com/analyze";
     const $ = (s) => document.querySelector(s);
@@ -191,7 +213,7 @@
     $("#analyzeBtn").onclick = async () => {
       const text = $("#inputText").value.trim();
       if (!text) { alert("Merci d’entrer un texte."); return; }
-      resultDiv.innerHTML = "⏳ Analyse en cours…";
+      resultDiv.innerHTML = "<p style='text-align:center;'>⏳ Analyse en cours…</p>";
 
       try {
         const r = await fetch(API, {
@@ -203,116 +225,132 @@
         if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
         render(data);
       } catch (e) {
-        resultDiv.innerHTML = `<div class="alert" style="background:#fde2e1;border-color:#f5b5b0;color:#842029">❌ ${e.message}</div>`;
+        resultDiv.innerHTML = `<div style="background:#fde2e1;border:1px solid #f5b5b0;color:#842029;padding:10px;border-radius:8px;text-align:center;">❌ ${e.message}</div>`;
       }
     };
 
-    /* -------------------------------------
-       🧠 RENDU PRINCIPAL
-    ------------------------------------- */
     function render(d) {
       resultDiv.innerHTML = "";
 
-      // 🔸 Bandeau si texte tronqué
-      if (d.texte_tronque) {
-        resultDiv.insertAdjacentHTML("beforeend",
-          `<div class="alert">⚠️ <b>Attention :</b> texte long — seuls les premiers <b>8 000 caractères</b> ont été analysés.</div>`);
-      }
+      const scoreColor = d.score_global >= 70 ? "var(--ok)" :
+        d.score_global >= 40 ? "var(--warn)" : "var(--bad)";
 
-      // 🔹 Synthèse contextuelle
-      resultDiv.insertAdjacentHTML("beforeend", `
-        <div class="score-top">
-          <div class="note">${safeNum(d.score_global)} / 100</div>
+      const scoreSection = `
+        <div class="score">
+          <h2>${safeNum(d.score_global)} / 100</h2>
+          <div class="progress">
+            <div class="progress-fill" style="width:${d.score_global || 0}%; background:${scoreColor};"></div>
+          </div>
           <p><b>Confiance :</b> ${safeNum(d.confiance_analyse)}%</p>
-          <p class="muted">${d.limites_analyse_ia?.[0] || "Analyse expérimentale — peut contenir des imprécisions."}</p>
+          <p class="muted"><i>Analyse expérimentale : De Facto est en amélioration continue.</i></p>
         </div>
-        ${d.synthese_contextuelle ? `<div class="synthese">${esc(d.synthese_contextuelle)}</div>` : ""}
-      `);
+      `;
 
-      // 🔹 Radar Chart
-      const fond = d.axes?.fond || {};
-      const forme = d.axes?.forme || {};
-      const chartEl = document.createElement("div");
-      chartEl.className = "chart-container";
-      chartEl.innerHTML = `<canvas id="radarChart"></canvas>`;
-      resultDiv.appendChild(chartEl);
-      drawRadar({
-        justesse: fond.justesse?.note || 0,
-        completude: fond.completude?.note || 0,
-        ton: forme.ton?.note || 0,
-        sophismes: forme.sophismes?.note || 0
-      });
+      const summaryBox = `
+        <div class="summary-box">${esc(d.resume || d.commentaire || "Synthèse non disponible.")}</div>
+      `;
 
-      // 🔹 Détails analytiques
-      resultDiv.insertAdjacentHTML("beforeend", `
-        <button class="toggle" onclick="toggleDetails()">Voir les détails ↓</button>
-        <div class="details" id="details">
-          ${detailBlock("Justesse", fond.justesse)}
-          ${detailBlock("Complétude", fond.completude)}
-          ${detailBlock("Ton", forme.ton)}
-          ${detailBlock("Sophismes", forme.sophismes)}
-          ${d.commentaire ? `<div class="card"><b>Résumé final :</b> ${esc(d.commentaire)}</div>` : ""}
-        </div>
-      `);
-    }
+      resultDiv.insertAdjacentHTML("beforeend", scoreSection + summaryBox);
 
-    /* -------------------------------------
-       📈 RADAR DRAWER
-    ------------------------------------- */
-    function drawRadar(values) {
-      const ctx = document.getElementById("radarChart");
-      new Chart(ctx, {
+      // --- Radar Chart épuré et centré ---
+      const canvas = document.createElement("canvas");
+      canvas.style.maxWidth = "440px";
+      canvas.style.height = "440px";
+      canvas.style.display = "block";
+      canvas.style.margin = "24px auto";
+      resultDiv.appendChild(canvas);
+
+      new Chart(canvas, {
         type: "radar",
         data: {
           labels: ["Justesse", "Complétude", "Ton", "Sophismes"],
           datasets: [{
-            label: "Fiabilité",
-            data: Object.values(values),
-            backgroundColor: "rgba(10, 74, 154, 0.2)",
-            borderColor: "#0a4a9a",
+            label: "Évaluation",
+            data: [
+              d.axes?.fond?.justesse?.note || 0,
+              d.axes?.fond?.completude?.note || 0,
+              d.axes?.forme?.ton?.note || 0,
+              d.axes?.forme?.sophismes?.note || 0
+            ],
+            backgroundColor: "rgba(10, 74, 154, 0.08)",
+            borderColor: "rgba(10, 74, 154, 0.8)",
             borderWidth: 2,
-            pointBackgroundColor: "#0a4a9a"
+            pointBackgroundColor: "rgba(10, 74, 154, 1)",
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            tension: 0
           }]
         },
         options: {
+          layout: { padding: 10 },
           scales: {
             r: {
-              min: 0,
+              beginAtZero: true,
               max: 100,
-              ticks: { stepSize: 20, color: "#667" },
-              grid: { color: "#ccd" },
-              angleLines: { color: "#ccd" }
+              min: 0,
+              ticks: { display: false },
+              grid: { color: "rgba(0, 0, 0, 0.05)", lineWidth: 1.2 },
+              angleLines: { color: "rgba(0, 0, 0, 0.08)", lineWidth: 1 },
+              pointLabels: {
+                font: { size: 13, weight: 500 },
+                color: "#333"
+              }
             }
           },
-          plugins: { legend: { display: false } }
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              enabled: true,
+              backgroundColor: "#0a4a9a",
+              titleFont: { size: 13 },
+              bodyFont: { size: 13 },
+              padding: 8,
+              cornerRadius: 6
+            }
+          },
+          elements: { line: { borderJoinStyle: "round" } }
         }
       });
+
+      // --- Cartes FOND / FORME ---
+      const fond = d.axes?.fond || {};
+      const forme = d.axes?.forme || {};
+
+      const cards = `
+        <div class="cols">
+          ${card("Justesse", fond.justesse)}
+          ${card("Complétude", fond.completude)}
+          ${card("Ton", forme.ton)}
+          ${card("Sophismes", forme.sophismes)}
+        </div>
+      `;
+      resultDiv.insertAdjacentHTML("beforeend", cards);
     }
 
-    /* -------------------------------------
-       🧩 UI HELPERS
-    ------------------------------------- */
-    function toggleDetails() {
-      const el = document.getElementById("details");
-      const btn = document.querySelector(".toggle");
-      const open = el.style.display === "block";
-      el.style.display = open ? "none" : "block";
-      btn.textContent = open ? "Voir les détails ↓" : "Masquer les détails ↑";
-    }
-
-    function detailBlock(label, crit) {
+    function card(title, crit) {
       if (!crit) return "";
+      const cls = emojiClass(crit.couleur);
       return `
         <div class="card">
-          <h3>${esc(label)} ${crit.couleur || ""}</h3>
+          <h3>${esc(title)} ${crit.couleur || ""}</h3>
+          <b>${safeNum(crit.note)}/100</b>
+          <div class="bar"><div class="fill ${cls}" style="width:${crit.note || 0}%"></div></div>
           <p>${esc(crit.justification || "—")}</p>
           ${crit.citation ? `<blockquote>« ${esc(crit.citation)} »</blockquote>` : ""}
         </div>
       `;
     }
 
+    function emojiClass(e) {
+      if (e === "🟢") return "ok";
+      if (e === "🟡") return "warn";
+      if (e === "🔴") return "bad";
+      return "";
+    }
+
     function safeNum(v) { return (typeof v === "number" && isFinite(v)) ? v : "–"; }
     function esc(str) { return (str || "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m])); }
   </script>
 </body>
+
 </html>

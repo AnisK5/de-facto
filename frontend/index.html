@@ -145,10 +145,11 @@
 
     .cols {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 22px;
       margin-top: 24px;
     }
+
 
     .card {
       background: #fff;
@@ -206,6 +207,92 @@
         font-size: 15px;
       }
     }
+
+    #result:empty {
+      display: none;
+    }
+
+    /* 🌙 Mode sombre élégant */
+    body.dark-mode {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9ca3af;
+      --primary: #2f81f7;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #f85149;
+      --bar: #30363d;
+    }
+
+    body.dark-mode header {
+      background: #161b22;
+      color: #e6edf3;
+      border-bottom: 1px solid #30363d;
+    }
+
+    body.dark-mode .summary-box {
+      background: #1c2128;
+      border-left: 4px solid var(--primary);
+      color: #e6edf3;
+    }
+
+    body.dark-mode .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+    }
+
+    body.dark-mode blockquote {
+      background: #1c2128;
+      color: #c9d1d9;
+      border-left: 4px solid var(--primary);
+    }
+
+    body.dark-mode textarea {
+      background: #161b22;
+      color: #e6edf3;
+      border: 1px solid #30363d;
+    }
+
+    body.dark-mode button {
+      background: #2f81f7;
+      color: #fff;
+    }
+
+    body.dark-mode .progress {
+      background: #21262d;
+    }
+
+    body.dark-mode canvas {
+      background: transparent !important;
+    }
+
+    /* 🌙 Bouton toggle clair/sombre */
+    #themeToggle {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      opacity: 0.85;
+      z-index: 1000;
+      transition: 0.3s ease;
+    }
+
+    #themeToggle:hover {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+
+
+
+    
   </style>
 </head>
 
@@ -277,7 +364,10 @@
       canvas.style.margin = "28px auto";
       resultDiv.appendChild(canvas);
 
-      new Chart(canvas, {
+      // --- Radar Chart clair/sombre ---
+      const isDarkMode = document.body.classList.contains("dark-mode");
+
+      window.myRadarChart = new Chart(canvas, {
         type: "radar",
         data: {
           labels: ["Justesse", "Complétude", "Ton", "Sophismes"],
@@ -289,10 +379,10 @@
               d.axes?.forme?.ton?.note || 0,
               d.axes?.forme?.sophismes?.note || 0
             ],
-            backgroundColor: "rgba(10, 74, 154, 0.07)",
-            borderColor: "rgba(10, 74, 154, 0.9)",
+            backgroundColor: isDarkMode ? "rgba(47,129,247,0.15)" : "rgba(10, 74, 154, 0.07)",
+            borderColor: isDarkMode ? "rgba(47,129,247,0.8)" : "rgba(10, 74, 154, 0.9)",
             borderWidth: 2,
-            pointBackgroundColor: "#0a4a9a",
+            pointBackgroundColor: isDarkMode ? "#58a6ff" : "#0a4a9a",
             pointRadius: 4,
             tension: 0
           }]
@@ -307,15 +397,16 @@
               max: 100,
               min: 0,
               ticks: { display: false },
-              grid: { color: "rgba(0, 0, 0, 0.05)", lineWidth: 1 },
-              angleLines: { color: "rgba(0, 0, 0, 0.08)", lineWidth: 1 },
-              pointLabels: { font: { size: 13.5, weight: 600 }, color: "#222" }
+              grid: { color: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", lineWidth: 1 },
+              angleLines: { color: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)", lineWidth: 1 },
+              pointLabels: { font: { size: 13.5, weight: 600 }, color: isDarkMode ? "#e6edf3" : "#222" }
             }
           },
           plugins: { legend: { display: false } },
           animation: { duration: 900, easing: "easeOutQuart" }
         }
       });
+
 
       const fond = d.axes?.fond || {};
       const forme = d.axes?.forme || {};
@@ -354,6 +445,33 @@
 
     function safeNum(v) { return (typeof v === "number" && isFinite(v)) ? v : "–"; }
     function esc(str) { return (str || "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m])); }
+
+    // 🌙 Bascule clair/sombre élégante
+    const themeBtn = document.createElement("button");
+    themeBtn.id = "themeToggle";
+    themeBtn.textContent = "🌙 Mode sombre";
+    document.body.appendChild(themeBtn);
+
+    themeBtn.onclick = () => {
+      document.body.classList.toggle("dark-mode");
+      const isDark = document.body.classList.contains("dark-mode");
+      themeBtn.textContent = isDark ? "☀️ Mode clair" : "🌙 Mode sombre";
+
+      // 🔄 Force le radar à se redessiner avec les bonnes couleurs
+      if (window.myRadarChart) {
+        const c = window.myRadarChart;
+        const dark = isDark;
+        c.data.datasets[0].backgroundColor = dark ? "rgba(47,129,247,0.15)" : "rgba(10,74,154,0.07)";
+        c.data.datasets[0].borderColor = dark ? "rgba(47,129,247,0.8)" : "rgba(10,74,154,0.9)";
+        c.data.datasets[0].pointBackgroundColor = dark ? "#58a6ff" : "#0a4a9a";
+        c.options.scales.r.grid.color = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
+        c.options.scales.r.angleLines.color = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+        c.options.scales.r.pointLabels.color = dark ? "#e6edf3" : "#222";
+        c.update();
+      }
+    };
+
+    
   </script>
 </body>
 </html>

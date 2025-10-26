@@ -3,173 +3,249 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>De Facto – Baromètre de Fiabilité</title>
+  <title>De Facto – Analyse de fiabilité</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg: #f6f8fb;
       --card: #fff;
-      --text: #222;
-      --muted: #667;
+      --text: #1c1c1c;
+      --muted: #667085;
       --primary: #0a4a9a;
       --ok: #14a44d;
       --warn: #f4a100;
       --bad: #d33c3c;
       --bar: #e9eef6;
+      --shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+      --ring: rgba(10, 74, 154, 0.15);
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 0;
       background: var(--bg);
       color: var(--text);
-      margin: 0;
-      padding: 0;
+      font-family: 'Inter', system-ui, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
     }
 
     header {
-      background: #0e1117;
-      color: #fff;
       text-align: center;
-      padding: 1.5rem;
+      margin-top: 5vh;
     }
 
     header h1 {
-      font-size: clamp(1.4rem, 2vw, 2rem);
+      font-size: clamp(2.3rem, 4vw, 3rem);
       margin: 0;
+      transition: all 0.3s ease;
+    }
+
+    header h1:hover {
+      color: var(--primary);
+      text-shadow: 0 0 10px rgba(10, 74, 154, 0.3);
+      transform: translateY(-2px);
     }
 
     header p {
-      font-size: clamp(0.9rem, 1.4vw, 1rem);
-      margin: 0.3rem 0 0;
+      color: var(--muted);
+      font-size: 1.1rem;
+      margin-top: 0.4rem;
+    }
+
+    .tagline {
+      text-align: center;
+      color: var(--muted);
+      font-size: 1rem;
+      margin: 0.6rem auto 2rem;
+      max-width: 600px;
     }
 
     main {
-      max-width: 960px;
-      margin: 2rem auto;
-      padding: 0 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 1rem;
+      min-height: 60vh;
+      transition: all 0.6s ease;
+    }
+
+    .input-row {
+      display: flex;
+      align-items: stretch;
+      width: 100%;
+      max-width: 760px;
+      background: var(--card);
+      border: 1px solid #dfe3eb;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+      transition: all 0.25s ease;
+    }
+
+    .input-row:focus-within {
+      box-shadow: 0 0 0 6px var(--ring);
+      border-color: var(--primary);
+      transform: translateY(-1px);
     }
 
     textarea {
-      width: 100%;
-      min-height: 160px;
-      border: 1px solid #cdd7e1;
-      border-radius: 10px;
-      padding: 12px;
+      flex: 1;
+      padding: 16px 18px;
       font-size: 15px;
-      background: #fff;
-      resize: vertical;
+      border: none;
+      outline: none;
+      resize: none;
+      min-height: 120px;
     }
 
     button {
-      background: var(--primary);
-      color: #fff;
+      background: #ecf2ff;
+      color: var(--primary);
+      font-weight: 600;
       border: none;
-      border-radius: 8px;
-      padding: 10px 18px;
-      font-size: 15px;
-      margin-top: 16px;
-      display: block;
-      margin-left: auto;
-      margin-right: auto;
+      padding: 0 28px;
       cursor: pointer;
-      transition: 0.2s ease;
+      border-left: 1px solid #e0e6f5;
+      transition: all 0.25s ease;
     }
 
     button:hover {
-      filter: brightness(1.05);
-      transform: scale(1.02);
+      background: var(--primary);
+      color: #fff;
+      transform: scale(1.05);
     }
+
+    .loader {
+      border: 3px solid #e3e7f3;
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+      display: none;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
 
     .result {
-      margin-top: 24px;
+      display: none;
+      opacity: 0;
+      transform: translateY(40px);
+      max-width: 940px;
+      margin: 3rem auto;
       background: var(--card);
-      border-radius: 12px;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.05);
-      padding: clamp(16px, 4vw, 24px);
+      border-radius: 16px;
+      padding: clamp(1.5rem, 3vw, 2.4rem);
+      box-shadow: var(--shadow);
+      transition: opacity 0.8s ease, transform 0.8s ease;
     }
 
-    .score {
-      text-align: center;
+    .result.visible {
+      display: block;
+      opacity: 1;
+      transform: translateY(0);
     }
 
-    .score h2 {
-      font-size: clamp(28px, 5vw, 42px);
-      margin: 0;
-      font-weight: 700;
+    .score-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 2rem;
+      animation: fadeInUp 1s ease forwards;
     }
+
+    @keyframes fadeInUp {
+      0% { opacity: 0; transform: translateY(20px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .score-main { flex: 1; min-width: 260px; }
+    .score-main h2 { margin: 0; font-size: 2rem; font-weight: 700; }
 
     .progress {
       height: 10px;
-      background: #e9eef6;
+      background: var(--bar);
       border-radius: 999px;
       overflow: hidden;
-      margin: 8px auto 12px;
-      width: 70%;
-      max-width: 420px;
+      margin: 0.8rem 0 1.2rem;
     }
 
-    .progress-fill {
-      height: 100%;
-      border-radius: 999px;
-      transition: width 0.6s ease;
+    .progress-fill { height: 100%; transition: width 0.6s ease; }
+
+    .confidence {
+      color: var(--muted);
+      font-size: 0.95rem;
     }
 
     .summary-box {
-      background: #f7f9fc;
+      background: #f9fafc;
       border-left: 4px solid var(--primary);
       padding: 14px 18px;
       border-radius: 6px;
-      margin: 18px auto;
-      max-width: 720px;
-      line-height: 1.6;
-      font-size: 15px;
+      margin-top: 1.5rem;
+      font-size: 0.97rem;
+      line-height: 1.7;
+      opacity: 0;
+      animation: fadeIn 1s 0.4s forwards;
     }
 
-    .muted {
-      color: var(--muted);
-      font-size: 0.95em;
-      margin-top: 4px;
-      font-style: italic;
+    @keyframes fadeIn {
+      to { opacity: 1; }
     }
 
-    canvas {
-      display: block;
-      width: 100%;
-      height: auto !important;
-      max-width: 420px;
-      margin: 24px auto;
+    .radar-wrap {
+      width: 340px;
+      height: 340px;
+      margin: 1rem auto;
+      opacity: 0;
+      animation: fadeInScale 1s 0.8s forwards;
+    }
+
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
     }
 
     .cols {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 22px;
-      margin-top: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+      opacity: 0;
+      animation: fadeIn 1s 1.2s forwards;
     }
-
 
     .card {
       background: #fff;
-      border: 1px solid #e0e7f0;
+      border: 1px solid #e0e6f0;
       border-radius: 12px;
-      padding: clamp(12px, 2vw, 18px);
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      padding: 1.4rem;
+      transition: box-shadow 0.3s ease, transform 0.3s ease;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+      position: relative;
     }
 
     .card:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+      transform: translateY(-4px);
+      box-shadow: 0 8px 22px rgba(10, 74, 154, 0.1);
+      border-color: rgba(10, 74, 154, 0.25);
     }
 
     .card h3 {
-      margin-top: 0;
+      margin: 0 0 6px;
       color: var(--primary);
-      font-size: 17px;
-      margin-bottom: 8px;
+      font-size: 1.05rem;
+    }
+
+    .tooltip {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
     }
 
     .bar {
@@ -180,11 +256,7 @@
       margin: 6px 0 10px;
     }
 
-    .fill {
-      height: 100%;
-      transition: width 0.6s ease;
-    }
-
+    .fill { height: 100%; transition: width 0.6s ease; }
     .fill.ok { background: var(--ok); }
     .fill.warn { background: var(--warn); }
     .fill.bad { background: var(--bad); }
@@ -196,103 +268,8 @@
       padding: 8px 12px;
       font-style: italic;
       color: #333;
-    }
-
-    @media (max-width: 600px) {
-      .summary-box {
-        font-size: 14px;
-        padding: 12px;
-      }
-      .card h3 {
-        font-size: 15px;
-      }
-    }
-
-    #result:empty {
-      display: none;
-    }
-
-    /* 🌙 Mode sombre élégant */
-    body.dark-mode {
-      --bg: #0d1117;
-      --card: #161b22;
-      --text: #e6edf3;
-      --muted: #9ca3af;
-      --primary: #2f81f7;
-      --ok: #3fb950;
-      --warn: #d29922;
-      --bad: #f85149;
-      --bar: #30363d;
-    }
-
-    body.dark-mode header {
-      background: #161b22;
-      color: #e6edf3;
-      border-bottom: 1px solid #30363d;
-    }
-
-    body.dark-mode .summary-box {
-      background: #1c2128;
-      border-left: 4px solid var(--primary);
-      color: #e6edf3;
-    }
-
-    body.dark-mode .card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      color: #e6edf3;
-    }
-
-    body.dark-mode blockquote {
-      background: #1c2128;
-      color: #c9d1d9;
-      border-left: 4px solid var(--primary);
-    }
-
-    body.dark-mode textarea {
-      background: #161b22;
-      color: #e6edf3;
-      border: 1px solid #30363d;
-    }
-
-    body.dark-mode button {
-      background: #2f81f7;
-      color: #fff;
-    }
-
-    body.dark-mode .progress {
-      background: #21262d;
-    }
-
-    body.dark-mode canvas {
-      background: transparent !important;
-    }
-
-    /* 🌙 Bouton toggle clair/sombre */
-    #themeToggle {
-      position: fixed;
-      top: 14px;
-      right: 14px;
-      background: var(--primary);
-      color: #fff;
-      border: none;
       border-radius: 6px;
-      padding: 6px 12px;
-      font-size: 13px;
-      cursor: pointer;
-      opacity: 0.85;
-      z-index: 1000;
-      transition: 0.3s ease;
     }
-
-    #themeToggle:hover {
-      opacity: 1;
-      transform: scale(1.05);
-    }
-
-
-
-    
   </style>
 </head>
 
@@ -301,25 +278,30 @@
     <h1>🧠 De Facto</h1>
     <p>Analyse de fiabilité et de rigueur médiatique</p>
   </header>
+  <p class="tagline">Évaluez la fiabilité d’un article, d’un post ou d’un extrait de texte en un clic.</p>
 
   <main>
-    <textarea id="inputText" placeholder="Collez un article, un post, ou un extrait…"></textarea>
-    <button id="analyzeBtn">Analyser</button>
-    <div id="result" class="result"></div>
+    <div class="input-row">
+      <textarea id="inputText" placeholder="Ex. : https://www.lemonde.fr/... ou 'Le président a déclaré que…'"></textarea>
+      <button id="analyzeBtn">Analyser</button>
+    </div>
+    <div class="loader" id="loader"></div>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <section id="result" class="result"></section>
 
   <script>
     const isLocal = window.location.hostname === "localhost" || window.location.hostname.includes("replit");
     const API = isLocal ? "/analyze" : "https://de-facto-backend.onrender.com/analyze";
-    const $ = (s) => document.querySelector(s);
+    const $ = s => document.querySelector(s);
     const resultDiv = $("#result");
+    const loader = $("#loader");
 
     $("#analyzeBtn").onclick = async () => {
       const text = $("#inputText").value.trim();
-      if (!text) { alert("Merci d’entrer un texte."); return; }
-      resultDiv.innerHTML = "<p style='text-align:center;'>⏳ Analyse en cours…</p>";
+      if (!text) return alert("Merci d’entrer un texte ou une URL.");
+      loader.style.display = "block";
+      resultDiv.classList.remove("visible");
 
       try {
         const r = await fetch(API, {
@@ -327,108 +309,91 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text })
         });
-        const data = await r.json();
-        if (!r.ok || data.error) throw new Error(data.error || ("HTTP " + r.status));
-        render(data);
+        const d = await r.json();
+        if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+        loader.style.display = "none";
+        render(d);
+        window.scrollTo({ top: resultDiv.offsetTop - 40, behavior: "smooth" });
       } catch (e) {
-        resultDiv.innerHTML = `<div style="background:#fde2e1;border:1px solid #f5b5b0;color:#842029;padding:10px;border-radius:8px;text-align:center;">❌ ${e.message}</div>`;
+        loader.style.display = "none";
+        resultDiv.innerHTML = `<div style="color:#e74c3c;text-align:center;">❌ ${e.message}</div>`;
+        resultDiv.classList.add("visible");
       }
     };
 
     function render(d) {
       resultDiv.innerHTML = "";
+      resultDiv.classList.add("visible");
 
-      const scoreColor = d.score_global >= 70 ? "var(--ok)" :
-        d.score_global >= 40 ? "var(--warn)" : "var(--bad)";
+      const scoreColor = d.score_global >= 70 ? "var(--ok)" : d.score_global >= 40 ? "var(--warn)" : "var(--bad)";
 
       const scoreSection = `
-        <div class="score">
-          <h2>${safeNum(d.score_global)} / 100</h2>
-          <div class="progress">
-            <div class="progress-fill" style="width:${d.score_global || 0}%; background:${scoreColor};"></div>
+        <div class="score-header">
+          <div class="score-main">
+            <h2>${safeNum(d.score_global)} / 100</h2>
+            <div class="progress"><div class="progress-fill" style="width:${d.score_global || 0}%;background:${scoreColor};"></div></div>
+            <p><b>Confiance :</b> ${safeNum(d.confiance_analyse)} %</p>
+            <p class="confidence"><i>Analyse expérimentale : De Facto est en amélioration continue.</i></p>
           </div>
-          <p><b>Confiance :</b> ${safeNum(d.confiance_analyse)}%</p>
-          <p class="muted"><i>Analyse expérimentale : De Facto est en amélioration continue.</i></p>
+          <div class="radar-wrap"><canvas id="radarChart"></canvas></div>
         </div>
-      `;
-
-      const summaryBox = `
         <div class="summary-box">${esc(d.resume || d.commentaire || "Synthèse non disponible.")}</div>
       `;
 
-      resultDiv.insertAdjacentHTML("beforeend", scoreSection + summaryBox);
+      resultDiv.insertAdjacentHTML("beforeend", scoreSection);
 
-      // --- Radar Chart responsive et propre ---
-      const canvas = document.createElement("canvas");
-      canvas.style.maxWidth = "420px";
-      canvas.style.margin = "28px auto";
-      resultDiv.appendChild(canvas);
-
-      // --- Radar Chart clair/sombre ---
-      const isDarkMode = document.body.classList.contains("dark-mode");
-
-      window.myRadarChart = new Chart(canvas, {
+      new Chart($("#radarChart"), {
         type: "radar",
         data: {
-          labels: ["Justesse", "Complétude", "Ton", "Sophismes"],
+          labels: ["Vrai", "Complet", "Neutre", "Clair"],
           datasets: [{
-            label: "Évaluation",
             data: [
               d.axes?.fond?.justesse?.note || 0,
               d.axes?.fond?.completude?.note || 0,
               d.axes?.forme?.ton?.note || 0,
               d.axes?.forme?.sophismes?.note || 0
             ],
-            backgroundColor: isDarkMode ? "rgba(47,129,247,0.15)" : "rgba(10, 74, 154, 0.07)",
-            borderColor: isDarkMode ? "rgba(47,129,247,0.8)" : "rgba(10, 74, 154, 0.9)",
+            backgroundColor: "rgba(10,74,154,0.07)",
+            borderColor: "rgba(10,74,154,0.9)",
             borderWidth: 2,
-            pointBackgroundColor: isDarkMode ? "#58a6ff" : "#0a4a9a",
-            pointRadius: 4,
-            tension: 0
+            pointBackgroundColor: "#0a4a9a",
+            pointRadius: 3
           }]
         },
         options: {
           responsive: true,
-          maintainAspectRatio: true,
-          layout: { padding: 14 },
-          scales: {
-            r: {
-              beginAtZero: true,
-              max: 100,
-              min: 0,
-              ticks: { display: false },
-              grid: { color: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", lineWidth: 1 },
-              angleLines: { color: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)", lineWidth: 1 },
-              pointLabels: { font: { size: 13.5, weight: 600 }, color: isDarkMode ? "#e6edf3" : "#222" }
-            }
-          },
-          plugins: { legend: { display: false } },
-          animation: { duration: 900, easing: "easeOutQuart" }
+          maintainAspectRatio: false,
+          scales: { r: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { display: false },
+            grid: { color: "rgba(0,0,0,0.05)" },
+            angleLines: { color: "rgba(0,0,0,0.05)" },
+            pointLabels: { font: { size: 13, weight: 600 }, color: "#222" }
+          }},
+          plugins: { legend: { display: false } }
         }
       });
 
-
-      const fond = d.axes?.fond || {};
-      const forme = d.axes?.forme || {};
-
+      const fond = d.axes?.fond || {}, forme = d.axes?.forme || {};
       const cards = `
         <div class="cols">
-          ${card("Justesse", fond.justesse)}
-          ${card("Complétude", fond.completude)}
-          ${card("Ton", forme.ton)}
-          ${card("Sophismes", forme.sophismes)}
+          ${card("Vrai", "Fidélité des faits", fond.justesse)}
+          ${card("Complet", "Richesse et diversité des infos", fond.completude)}
+          ${card("Neutre", "Absence de parti pris", forme.ton)}
+          ${card("Clair", "Cohérence de l’argumentation", forme.sophismes)}
         </div>
       `;
       resultDiv.insertAdjacentHTML("beforeend", cards);
     }
 
-    function card(title, crit) {
+    function card(title, tooltip, crit) {
       if (!crit) return "";
       const cls = emojiClass(crit.couleur);
       return `
         <div class="card">
           <h3>${esc(title)} ${crit.couleur || ""}</h3>
-          <b>${safeNum(crit.note)}/100</b>
+          <p class="tooltip">${esc(tooltip)}</p>
           <div class="bar"><div class="fill ${cls}" style="width:${crit.note || 0}%"></div></div>
           <p>${esc(crit.justification || "—")}</p>
           ${crit.citation ? `<blockquote>« ${esc(crit.citation)} »</blockquote>` : ""}
@@ -445,33 +410,6 @@
 
     function safeNum(v) { return (typeof v === "number" && isFinite(v)) ? v : "–"; }
     function esc(str) { return (str || "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m])); }
-
-    // 🌙 Bascule clair/sombre élégante
-    const themeBtn = document.createElement("button");
-    themeBtn.id = "themeToggle";
-    themeBtn.textContent = "🌙 Mode sombre";
-    document.body.appendChild(themeBtn);
-
-    themeBtn.onclick = () => {
-      document.body.classList.toggle("dark-mode");
-      const isDark = document.body.classList.contains("dark-mode");
-      themeBtn.textContent = isDark ? "☀️ Mode clair" : "🌙 Mode sombre";
-
-      // 🔄 Force le radar à se redessiner avec les bonnes couleurs
-      if (window.myRadarChart) {
-        const c = window.myRadarChart;
-        const dark = isDark;
-        c.data.datasets[0].backgroundColor = dark ? "rgba(47,129,247,0.15)" : "rgba(10,74,154,0.07)";
-        c.data.datasets[0].borderColor = dark ? "rgba(47,129,247,0.8)" : "rgba(10,74,154,0.9)";
-        c.data.datasets[0].pointBackgroundColor = dark ? "#58a6ff" : "#0a4a9a";
-        c.options.scales.r.grid.color = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
-        c.options.scales.r.angleLines.color = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
-        c.options.scales.r.pointLabels.color = dark ? "#e6edf3" : "#222";
-        c.update();
-      }
-    };
-
-    
   </script>
 </body>
 </html>

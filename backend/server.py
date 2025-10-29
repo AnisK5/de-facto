@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
 import os, signal, json, re
+from datetime import datetime
 from dotenv import load_dotenv
 
 # ======================================================
@@ -159,7 +160,7 @@ def analyze():
     Exemples :
     - « CNews, souvent perçu comme orienté à droite, met l’accent sur les critiques de la gauche et minimise les contre-arguments. »
     - « Mediapart adopte une approche plus militante, ce qui explique le ton accusatoire. »
-
+    - « Le Monde privilégie un ton factuel et analytique. »
 
     ---
 
@@ -173,39 +174,8 @@ def analyze():
 
     ---
 
-#### 💭 Hypothèse éditoriale (analyse du cadrage médiatique)
-
-Formule une hypothèse journalistique sur la manière dont **la ligne éditoriale du média** ou **le contexte politique** 
-peuvent influencer la présentation des faits, le choix des mots, ou l’équilibre des points de vue.
-
-Ton rôle ici est d’expliquer *pourquoi* le texte est rédigé de cette manière, 
-en t’appuyant sur ta connaissance du paysage médiatique et des positionnements idéologiques habituels.
-
-⚙️ Si le média est connu (ex. CNews, Le Figaro, Libération, Mediapart, Le Monde, Valeurs Actuelles, etc.),
-tu peux mentionner sa tendance éditoriale de manière factuelle et neutre 
-(pas de jugement moral, uniquement une interprétation journalistique).
-
----
-
-### Exemples de formulations attendues :
-- « Le cadrage du texte reflète la ligne éditoriale de CNews, qui tend à mettre en avant les critiques de la gauche. »
-- « L’article adopte une approche typique de Mediapart, insistant sur les responsabilités politiques et morales. »
-- « Le ton distancié est cohérent avec la tradition factuelle du Monde, privilégiant la neutralité. »
-- « L’absence de contre-arguments peut traduire une volonté de soutenir implicitement la position gouvernementale. »
-- « L’article met en avant la figure du “citoyen victime”, un cadrage souvent utilisé dans les médias de gauche. »
-
----
-
-### Exemples à éviter :
-- « L’article est orienté politiquement. »
-- « Le texte est neutre. »
-- « C’est subjectif. »
-
----
-
-🎯 Objectif : produire une hypothèse claire, plausible, contextualisée et journalistiquement utile — 
-une phrase qui aide le lecteur à comprendre *le pourquoi du ton et du cadrage*.
-
+    #### 💭 Hypothèse éditoriale
+    Explique brièvement pourquoi le texte est rédigé de cette manière selon son cadrage médiatique.
 
     ---
 
@@ -220,7 +190,6 @@ une phrase qui aide le lecteur à comprendre *le pourquoi du ton et du cadrage*.
     {text}
     ---
     """
-
 
     try:
         signal.alarm(30)
@@ -245,16 +214,12 @@ une phrase qui aide le lecteur à comprendre *le pourquoi du ton et du cadrage*.
                 return jsonify({"error": "Réponse GPT non conforme (non JSON)"}), 500
             result = json.loads(m.group(0))
 
-        # Valeurs par défaut (non destructif)
+        # Valeurs par défaut
         result.setdefault("confiance_analyse", 80)
         result.setdefault("limites_analyse_ia", [])
         result.setdefault("limites_analyse_contenu", [])
         result.setdefault("recherches_effectuees", [])
         result.setdefault("methode", {})
-        if ENABLE_SYNTHESIS:
-            result.setdefault("synthese_contextuelle", "")
-        if ENABLE_CONTEXT_BOX:
-            result.setdefault("eclairage_contextuel", "")
 
         # Couleurs
         if "score_global" in result:
@@ -276,6 +241,22 @@ une phrase qui aide le lecteur à comprendre *le pourquoi du ton et du cadrage*.
                     "Analyse expérimentale : De Facto est en amélioration continue et peut comporter des imprécisions."
                 )
 
+        # ======================================================
+        # 🪣 Sauvegarde historique locale
+        # ======================================================
+        try:
+            log_entry = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "input_excerpt": text[:300],
+                "score_global": result.get("score_global"),
+                "resume": result.get("resume"),
+                "commentaire": result.get("commentaire")
+            }
+            with open("logs.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        except Exception as e:
+            print("⚠️ Impossible d’écrire le log :", e)
+
         return jsonify(result)
 
     except TimeoutError:
@@ -286,11 +267,29 @@ une phrase qui aide le lecteur à comprendre *le pourquoi du ton et du cadrage*.
 
 
 # ======================================================
+# 📜 Historique des analyses
+# ======================================================
+@app.route("/logs", methods=["GET"])
+def get_logs():
+    """Retourne les 50 dernières analyses enregistrées."""
+    logs = []
+    try:
+        if os.path.exists("logs.jsonl"):
+            with open("logs.jsonl", "r", encoding="utf-8") as f:
+                for line in f:
+                    logs.append(json.loads(line))
+        logs = sorted(logs, key=lambda x: x["timestamp"], reverse=True)[:50]
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify(logs)
+
+
+# ======================================================
 # Diagnostic / version
 # ======================================================
 @app.route("/version")
 def version():
-    return jsonify({"version": "De Facto v2.1-context", "status": "✅ actif"})
+    return jsonify({"version": "De Facto v2.3-hist-complete", "status": "✅ actif"})
 
 
 # ======================================================

@@ -6,19 +6,20 @@
   <title>De Facto – Analyse de fiabilité</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     :root {
-      --bg: #f6f8fb;
-      --card: #fff;
-      --text: #1c1c1c;
-      --muted: #667085;
-      --primary: #0a4a9a;
+      --bg: #05070d;
+      --card: #0d111a;
+      --text: #e5e9f0;
+      --muted: #8a94a6;
+      --primary: #2b7cff;
       --ok: #14a44d;
       --warn: #f4a100;
       --bad: #d33c3c;
-      --bar: #e9eef6;
-      --shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
-      --ring: rgba(10, 74, 154, 0.15);
+      --bar: #1b2233;
+      --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+      --ring: rgba(43, 124, 255, 0.25);
     }
 
     * { box-sizing: border-box; }
@@ -36,55 +37,40 @@
     header {
       text-align: center;
       margin-bottom: 1rem;
+      margin-top: 3rem;
     }
 
     .brand {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 14px;
-      margin-bottom: 0.4rem;
+      flex-direction: column;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
     }
 
     .brand img.logo {
-      width: 56px;
+      width: clamp(260px, 40vw, 420px);
       height: auto;
-      filter: drop-shadow(0 2px 6px rgba(43, 182, 208, 0.25));
-      animation: pulseGlow 3s ease-in-out infinite;
-      transition: transform 0.4s ease, filter 0.4s ease;
+      filter: none; /* pas de halo */
+      transition: transform 0.4s ease;
     }
 
     .brand img.logo:hover {
-      transform: scale(1.06);
-      filter: drop-shadow(0 3px 12px rgba(43, 182, 208, 0.45));
-    }
-
-    @keyframes pulseGlow {
-      0%, 100% { filter: drop-shadow(0 2px 6px rgba(43,182,208,0.25)); }
-      50% { filter: drop-shadow(0 4px 14px rgba(43,182,208,0.45)); }
+      transform: scale(1.03);
     }
 
     header h1 {
-      font-size: clamp(2.3rem, 4vw, 3rem);
-      margin: 0;
-      color: var(--text);
-      transition: all 0.3s ease;
-    }
-
-    header h1:hover {
-      color: var(--primary);
-      text-shadow: 0 0 10px rgba(10, 74, 154, 0.25);
-      transform: translateY(-2px);
+      display: none; /* on garde juste le logo visuel */
     }
 
     header p {
       color: var(--muted);
-      font-size: 1.05rem;
-      margin: 0.5rem 0 0.2rem;
+      font-size: 1.1rem;
+      margin-top: 1.2rem;
     }
 
-
-    /* -------- MAIN (centré verticalement) -------- */
+    /* -------- MAIN -------- */
     main {
       display: flex;
       flex-direction: column;
@@ -92,11 +78,10 @@
       justify-content: center;
       min-height: 85vh;
       padding: 0 1rem;
-      transition: all 0.6s ease;
       position: relative;
     }
 
-    /* -------- INPUT WRAPPER -------- */
+    /* -------- INPUT -------- */
     .input-wrapper {
       position: relative;
       display: flex;
@@ -106,16 +91,15 @@
       max-width: 760px;
     }
 
-    /* -------- INPUT ROW -------- */
     .input-row {
       display: flex;
       align-items: stretch;
       width: 100%;
       background: var(--card);
-      border: 1px solid #dfe3eb;
+      border: 1px solid #1f2737;
       border-radius: 16px;
       overflow: hidden;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+      box-shadow: 0 0 12px rgba(43,124,255,0.05);
       transition: all 0.25s ease;
     }
 
@@ -133,22 +117,26 @@
       outline: none;
       resize: none;
       min-height: 120px;
+      background: transparent;
+      color: var(--text);
     }
 
     button {
-      background: #ecf2ff;
-      color: var(--primary);
+      background: linear-gradient(145deg, #1d2a48, #283b6b);
+      color: #a8c3ff;
       font-weight: 600;
       border: none;
-      padding: 0 28px;
+      padding: 0 30px;
       cursor: pointer;
-      border-left: 1px solid #e0e6f5;
-      transition: all 0.25s ease;
+      border-left: 1px solid #223358;
+      transition: all 0.3s ease;
+      font-size: 1.05rem;
     }
 
     button:hover {
-      background: var(--primary);
+      background: linear-gradient(145deg, #2b7cff, #1b45a1);
       color: #fff;
+      box-shadow: 0 0 16px rgba(43,124,255,0.6);
       transform: scale(1.05);
     }
 
@@ -169,11 +157,11 @@
     }
 
     .loader {
-      border: 3px solid #e3e7f3;
+      border: 3px solid #1a2435;
       border-top: 3px solid var(--primary);
       border-radius: 50%;
-      width: 28px;
-      height: 28px;
+      width: 30px;
+      height: 30px;
       animation: spin 1s linear infinite;
     }
 
@@ -232,7 +220,7 @@
     }
 
     .summary-box {
-      background: #f9fafc;
+      background: #101826;
       border-left: 4px solid var(--primary);
       padding: 14px 18px;
       border-radius: 6px;
@@ -268,19 +256,18 @@
     }
 
     .card {
-      background: #fff;
-      border: 1px solid #e0e6f0;
+      background: #101826;
+      border: 1px solid #1f2737;
       border-radius: 12px;
       padding: 1.4rem;
       transition: box-shadow 0.3s ease, transform 0.3s ease;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-      position: relative;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
     }
 
     .card:hover {
       transform: translateY(-4px);
-      box-shadow: 0 8px 22px rgba(10, 74, 154, 0.1);
-      border-color: rgba(10, 74, 154, 0.25);
+      box-shadow: 0 0 18px rgba(43,124,255,0.3);
+      border-color: rgba(43,124,255,0.3);
     }
 
     .card h3 {
@@ -309,12 +296,12 @@
     .fill.bad { background: var(--bad); }
 
     blockquote {
-      background: #f7f9fc;
+      background: #0c1423;
       border-left: 4px solid var(--primary);
       margin: 8px 0;
       padding: 8px 12px;
       font-style: italic;
-      color: #333;
+      color: #cdd4e0;
       border-radius: 6px;
     }
   </style>
@@ -324,12 +311,10 @@
   <main>
     <header>
       <div class="brand">
-        <img src="logo.png" alt="De Facto logo" class="logo" />
-        <h1>De Facto</h1>
+        <img src="toop.png" alt="De Facto logo" class="logo" />
       </div>
-      <p>Collez un lien d'article ou son contenu, et découvrez s’il est fiable.</p>
+      <p>Collez un lien d’article ou son contenu, et découvrez s’il est fiable.</p>
     </header>
-
 
     <div class="input-wrapper">
       <div class="input-row">
@@ -368,7 +353,7 @@
         window.scrollTo({ top: resultDiv.offsetTop - 40, behavior: "smooth" });
       } catch (e) {
         loader.parentElement.classList.remove("active");
-        resultDiv.innerHTML = `<div style="color:#e74c3c;text-align:center;">❌ ${e.message}</div>`;
+        resultDiv.innerHTML = `<div style="color:#f55;text-align:center;">❌ ${e.message}</div>`;
         resultDiv.classList.add("visible");
       }
     };
@@ -403,10 +388,10 @@
               d.axes?.forme?.ton?.note || 0,
               d.axes?.forme?.sophismes?.note || 0
             ],
-            backgroundColor: "rgba(10,74,154,0.07)",
-            borderColor: "rgba(10,74,154,0.9)",
+            backgroundColor: "rgba(43,124,255,0.07)",
+            borderColor: "rgba(43,124,255,0.9)",
             borderWidth: 2,
-            pointBackgroundColor: "#0a4a9a",
+            pointBackgroundColor: "#2b7cff",
             pointRadius: 3
           }]
         },
@@ -417,9 +402,9 @@
             beginAtZero: true,
             max: 100,
             ticks: { display: false },
-            grid: { color: "rgba(0,0,0,0.05)" },
-            angleLines: { color: "rgba(0,0,0,0.05)" },
-            pointLabels: { font: { size: 13, weight: 600 }, color: "#222" }
+            grid: { color: "rgba(255,255,255,0.05)" },
+            angleLines: { color: "rgba(255,255,255,0.05)" },
+            pointLabels: { font: { size: 13, weight: 600 }, color: "#e5e9f0" }
           }},
           plugins: { legend: { display: false } }
         }

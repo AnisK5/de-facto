@@ -165,12 +165,18 @@ def analyze():
     ---
 
     #### 🔍 Confiance de l’analyse
-    Explique pourquoi le score de confiance est ce qu’il est.
+Ce score indique **dans quelle mesure ton évaluation du texte est fiable**, pas la fiabilité du texte lui-même.
 
-    **Exemples :**
-    - « Confiance élevée (85 %) : cohérence forte entre les 4 critères. »
-    - « Moyenne (60 %) : divergence entre fond complet et ton biaisé. »
-    - « Faible (40 %) : texte trop court ou ambigu. »
+Rédige une phrase simple expliquant pourquoi la confiance de l’analyse est à ce niveau, 
+sans répéter le pourcentage ni la mention “Confiance faible/moyenne/élevée”.  
+Donne une raison concrète liée au texte : longueur, structure, ton ironique, caractère tronqué, ou densité factuelle.
+
+**Exemples :**
+- « Analyse fiable car le texte est clair et bien structuré. »
+- « Texte court ou tronqué, ce qui limite la fiabilité de l’analyse. »
+- « Ton ironique et ambigu, ce qui rend l’interprétation prudente. »
+
+
 
     ---
 

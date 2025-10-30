@@ -373,23 +373,69 @@
       }
     };
 
+    function qualif(score) {
+    if (score >= 85) return "Très fiable";
+    if (score >= 70) return "Fiable";
+    if (score >= 50) return "Assez fiable";
+    if (score >= 30) return "Peu fiable";
+    return "Non fiable"; 
+
+      }  
+    
     function render(d) {
       resultDiv.innerHTML = "";
       resultDiv.classList.add("visible");
 
       const scoreColor = d.score_global >= 70 ? "var(--ok)" : d.score_global >= 40 ? "var(--warn)" : "var(--bad)";
       const scoreSection = `
-        <div class="score-header">
-          <div class="score-main">
-            <h2>${safeNum(d.score_global)} / 100</h2>
-            <div class="progress"><div class="progress-fill" style="width:${d.score_global || 0}%;background:${scoreColor};"></div></div>
-            <p><b>Confiance :</b> ${safeNum(d.confiance_analyse)} %</p>
-            <p class="confidence"><i>Analyse expérimentale : De Facto est en amélioration continue.</i></p>
+        <!-- 🟩 Première carte : Score global + radar + Synthèse globale -->
+        <div class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:2rem;">
+
+          <!-- Colonne gauche : score + synthèse -->
+          <div style="flex:1;min-width:260px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <h2 style="margin:0;color:${scoreColor};">
+                ${safeNum(d.score_global)} / 100
+              </h2>
+              <span style="font-weight:600;color:${scoreColor};font-size:1.1rem;">
+                ${qualif(d.score_global)}
+              </span>
+            </div>
+
+            <div class="progress" style="margin-bottom:12px;">
+              <div class="progress-fill" style="width:${d.score_global || 0}%;background:${scoreColor};"></div>
+            </div>
+
+            <!-- 📰 Synthèse globale (remontée ici) -->
+            <div style="margin-bottom:16px;">
+              <p style="margin:0;">${esc(d.resume || d.commentaire || "Synthèse non disponible.")}</p>
+            </div>
           </div>
-          <div class="radar-wrap"><canvas id="radarChart"></canvas></div>
+
+          <!-- Radar à droite -->
+          <div style="flex:0 0 300px;height:300px;">
+            <canvas id="radarChart"></canvas>
+          </div>
+
         </div>
-        <div class="summary-box">${esc(d.resume || d.commentaire || "Synthèse non disponible.")}</div>
+
+        <!-- 🟦 Deuxième carte : Confiance de l’analyse (descendue ici) -->
+        <div class="card">
+          <p style="margin:0 0 6px;">
+            <b>Confiance de l’analyse :</b> ${safeNum(d.confiance_analyse)} % 
+            <span style="color:var(--muted);font-weight:400;margin-left:6px;">
+              – ${esc(d.explication_confiance || "Analyse interne : cohérence moyenne entre les critères.")}
+            </span>
+          </p>
+
+          <p class="confidence" style="margin:0;">
+            <i>Analyse expérimentale : De Facto est en amélioration continue.</i>
+          </p>
+        </div>
       `;
+
+
+
       resultDiv.insertAdjacentHTML("beforeend", scoreSection);
 
       new Chart($("#radarChart"), {
@@ -440,16 +486,71 @@
     function card(title, tooltip, crit) {
       if (!crit) return "";
       const cls = emojiClass(crit.couleur);
+      const color =
+        cls === "ok" ? "var(--ok)" :
+        cls === "warn" ? "var(--warn)" :
+        cls === "bad" ? "var(--bad)" :
+        "var(--muted)";
+
+      // 🧠 Génère une qualification contextuelle selon le critère
+      function qualifSpecifique(title, note) {
+        if (title === "Vrai") {
+          if (note >= 85) return "Très fidèle aux faits";
+          if (note >= 70) return "Fidèle aux faits";
+          if (note >= 50) return "Partiellement exact";
+          if (note >= 30) return "Inexact";
+          return "Peu fiable";
+        }
+        if (title === "Complet") {
+          if (note >= 85) return "Très complet";
+          if (note >= 70) return "Assez complet";
+          if (note >= 50) return "Partiel";
+          if (note >= 30) return "Incomplet";
+          return "Très incomplet";
+        }
+        if (title === "Neutre") {
+          if (note >= 85) return "Tonalité très équilibrée";
+          if (note >= 70) return "Tonalité équilibrée";
+          if (note >= 50) return "Tonalité mitigée";
+          if (note >= 30) return "Tonalité biaisée";
+          return "Très biaisée";
+        }
+        if (title === "Clair") {
+          if (note >= 85) return "Raisonnement très cohérent";
+          if (note >= 70) return "Raisonnement cohérent";
+          if (note >= 50) return "Assez clair";
+          if (note >= 30) return "Confus";
+          return "Très confus";
+        }
+        return "";
+      }
+
+      const qualification = qualifSpecifique(title, crit.note);
+
       return `
         <div class="card">
-          <h3>${esc(title)} ${crit.couleur || ""}</h3>
-          <p class="tooltip">${esc(tooltip)}</p>
-          <div class="bar"><div class="fill ${cls}" style="width:${crit.note || 0}%"></div></div>
-          <p>${esc(crit.justification || "—")}</p>
+          <h3 style="margin:0 0 6px;">${esc(title)}</h3>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 6px;">
+            <p style="margin:0;font-weight:600;color:${color};">${safeNum(crit.note)} / 100</p>
+            <span style="font-weight:600;color:${color};font-size:0.95rem;text-align:right;">
+              ${qualification}
+            </span>
+          </div>
+
+          <div class="bar">
+            <div class="fill ${cls}" style="width:${crit.note || 0}%"></div>
+          </div>
+
+          <p style="margin-top:10px;">${esc(crit.justification || "—")}</p>
           ${crit.citation ? `<blockquote>« ${esc(crit.citation)} »</blockquote>` : ""}
         </div>
       `;
     }
+
+
+
+
 
     function emojiClass(e) {
       if (e === "🟢") return "ok";

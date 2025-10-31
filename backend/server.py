@@ -157,7 +157,17 @@ def analyze():
             ],
             temperature=0
         )
-        fact_mix = json.loads(pre_resp.choices[0].message.content.strip())
+        raw_content = pre_resp.choices[0].message.content.strip()
+        # Parsing JSON robuste avec regex
+        try:
+            fact_mix = json.loads(raw_content)
+        except json.JSONDecodeError:
+            # Tenter d'extraire le JSON du texte
+            m = re.search(r"\{.*\}", raw_content, re.DOTALL)
+            if m:
+                fact_mix = json.loads(m.group(0))
+            else:
+                raise
     except Exception as e:
         print("⚠️ Erreur pré-analyse :", e)
         fact_mix = {"faits": 0, "opinions": 0, "autres": 0}
@@ -199,10 +209,19 @@ def analyze():
                 ],
                 temperature=0
             )
+            raw_entities = ent_resp.choices[0].message.content.strip()
             try:
-                entities = json.loads(ent_resp.choices[0].message.content.strip())
-            except Exception:
-                entities = []
+                entities = json.loads(raw_entities)
+            except json.JSONDecodeError:
+                # Tenter d'extraire le JSON array du texte
+                m = re.search(r"\[.*\]", raw_entities, re.DOTALL)
+                if m:
+                    try:
+                        entities = json.loads(m.group(0))
+                    except Exception:
+                        entities = []
+                else:
+                    entities = []
             if not isinstance(entities, list):
                 entities = []
             entities = [e for e in entities if isinstance(e, str) and e.strip()]

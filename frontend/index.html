@@ -419,19 +419,26 @@
 
         </div>
 
-        <!-- 🟦 Deuxième carte : Confiance de l’analyse (descendue ici) -->
-        <div class="card">
-          <p style="margin:0 0 6px;">
-            <b>Confiance de l’analyse :</b> ${safeNum(d.confiance_analyse)} % 
-            <span style="color:var(--muted);font-weight:400;margin-left:6px;">
-              – ${esc(d.explication_confiance || "Analyse interne : cohérence moyenne entre les critères.")}
-            </span>
-          </p>
+        <!-- 🟦 Deuxième carte : Confiance de l’analyse enrichie -->
+<div class="card">
+  <p style="margin:0 0 6px;">
+    <b>Confiance de l’analyse :</b> ${safeNum(d.confiance_analyse)} % 
+    <span style="color:var(--muted);font-weight:400;margin-left:6px;">
+      – ${esc(d.explication_confiance || "Analyse interne : cohérence moyenne entre les critères.")}
+    </span>
+  </p>
 
-          <p class="confidence" style="margin:0;">
-            <i>Analyse expérimentale : De Facto est en amélioration continue.</i>
-          </p>
-        </div>
+  <!-- 🧠 Ajout : informations techniques issues de la pré-analyse -->
+  <div style="margin:8px 0 10px;color:var(--muted);font-size:0.9rem;">
+    <p style="margin:0;">🗂 <b>Type de texte détecté :</b> ${esc(d.type_texte || "—")}</p>
+    <p style="margin:2px 0 0;">📊 <b>Densité factuelle :</b> ${safeNum(d.densite_faits)} %</p>
+  </div>
+
+  <p class="confidence" style="margin:0;">
+    <i>Analyse expérimentale : De Facto est en amélioration continue.</i>
+  </p>
+</div>
+
       `;
 
 

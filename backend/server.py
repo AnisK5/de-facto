@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
-import os, signal, json, re
+import os, signal, json, re, requests, urllib.parse, time
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # ⚙️ Feature flags — activables/désactivables sans casser
 # ======================================================
 ENABLE_SYNTHESIS = True       # Ajoute une synthèse narrative lisible
-ENABLE_CONTEXT_BOX = True     # Ajoute un éclairage contextuel court
+ENABLE_CONTEXT_BOX = True     # Ajoute un éclairage contextuel court + web enrichi
 ENABLE_TRANSPARENCY = True    # Ajoute mentions "expérimental" et tronquage
 ENABLE_URL_EXTRACT = True     # Active Trafilatura (si URL fournie)
 
@@ -41,6 +41,61 @@ def color_for(score: int) -> str:
     if score >= 40: return "🟡"
     return "🔴"
 
+# ======================================================
+# 🌐 Recherche Google CSE (Programmable Search API)
+# ======================================================
+ALLOWED_SITES = [
+    "reuters.com", "apnews.com", "bbc.com",
+    "lemonde.fr", "francetvinfo.fr",
+    "lefigaro.fr", "liberation.fr", "leparisien.fr"
+]
+
+def search_web_results(queries, per_query=5, pause=0.5):
+    """Recherche Google CSE (Programmable Search API) sur plusieurs entités ou requêtes."""
+    api_key = os.getenv("GOOGLE_CSE_API_KEY")
+    cx = os.getenv("GOOGLE_CSE_CX")
+    if not api_key or not cx:
+        print("⚠️ GOOGLE_CSE_API_KEY ou GOOGLE_CSE_CX manquant — recherche désactivée.")
+        return []
+
+    all_hits = []
+    seen = set()
+    for q in queries:
+        site_filter = " OR ".join([f"site:{s}" for s in ALLOWED_SITES])
+        full_q = f"{q} ({site_filter})"
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {
+            "key": api_key,
+            "cx": cx,
+            "q": full_q,
+            "num": per_query,
+            "hl": "fr",
+            "lr": "lang_fr",
+            "safe": "off"
+        }
+        try:
+            r = requests.get(url, params=params, timeout=10)
+            if r.status_code != 200:
+                print("⚠️ Erreur Google CSE:", r.status_code, r.text[:200])
+                continue
+            data = r.json()
+            results = []
+            for item in data.get("items", []) or []:
+                link = item.get("link")
+                if link and link not in seen:
+                    seen.add(link)
+                    results.append({
+                        "titre": item.get("title"),
+                        "snippet": item.get("snippet"),
+                        "url": link
+                    })
+            if results:
+                all_hits.append({"entité": q, "sources": results})
+            time.sleep(pause)
+        except Exception as e:
+            print("⚠️ Erreur recherche Google:", e)
+            continue
+    return all_hits
 
 # ======================================================
 # 🧩 Route principale : analyse
@@ -76,7 +131,200 @@ def analyze():
         text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
 
     # ======================================================
-    # 🧠 Prompt enrichi
+    # 🧩 Étape 1 — Pré-analyse de type de texte (faits/opinions/autres)
+    # ======================================================
+    try:
+        pre_prompt = f"""
+        Classe le texte selon 3 catégories :
+        - FAITS (affirmations vérifiables)
+        - OPINIONS (jugements ou interprétations)
+        - AUTRES (ironie, satire, poésie, récit, etc.)
+
+        Retourne un JSON au format :
+        {{
+          "faits": <int>,
+          "opinions": <int>,
+          "autres": <int>
+        }}
+        Texte :
+        {text[:2000]}
+        """
+        pre_resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Tu es un linguiste qui catégorise les phrases d'un texte."},
+                {"role": "user", "content": pre_prompt}
+            ],
+            temperature=0
+        )
+        fact_mix = json.loads(pre_resp.choices[0].message.content.strip())
+    except Exception as e:
+        print("⚠️ Erreur pré-analyse :", e)
+        fact_mix = {"faits": 0, "opinions": 0, "autres": 0}
+
+    total = sum(fact_mix.values()) or 1
+    densite_faits = int((fact_mix["faits"] / total) * 100)
+    type_texte = (
+        "Principalement factuel" if densite_faits > 60 else
+        "Opinion ou analyse" if fact_mix["opinions"] > 40 else
+        "Autre (narratif, satirique…)"
+    )
+
+    # ======================================================
+    # 🌍 Étape intermédiaire : Recherche Web enrichie
+    #    (entités → recherche → faits manquants / contradictions / impact)
+    # ======================================================
+    def web_context_research(text: str):
+        """
+        Étape d'enrichissement factuel :
+        1) Extrait les entités du texte (personnes, lieux, orga, événements)
+        2) Recherche des sources fiables (Reuters, AP, BBC, Le Monde, Franceinfo)
+        3) Synthétise : faits manquants précis + contradictions + impact + fiabilité
+        Retour JSON robuste même en cas d'échec partiel.
+        """
+        try:
+            # 1) Extraction d'entités
+            ent_prompt = f"""
+            Extrait les principales entités nommées (personnes, lieux, organisations, événements, lois, chiffres clés)
+            du texte suivant :
+            {text[:2000]}
+
+            Réponds uniquement en JSON : ["entité1", "entité2", ...]
+            """
+            ent_resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Tu es un extracteur d'entités journalistiques (NER)."},
+                    {"role": "user", "content": ent_prompt}
+                ],
+                temperature=0
+            )
+            try:
+                entities = json.loads(ent_resp.choices[0].message.content.strip())
+            except Exception:
+                entities = []
+            if not isinstance(entities, list):
+                entities = []
+            entities = [e for e in entities if isinstance(e, str) and e.strip()]
+            if not entities:
+                return {
+                    "recherches_effectuees": [],
+                    "faits_manquants": [],
+                    "contradictions": [],
+                    "impact": "faible",
+                    "fiabilite_sources": "Aucune source consultable (pas d'entités détectées).",
+                    "synthese": "Aucune entité détectée — enrichissement impossible."
+                }
+
+            # 2) Recherche Web (Google CSE) — requêtes multi-angles
+            queries = []
+            for ent in entities[:5]:
+                queries += [
+                    f"{ent} actualité",
+                    f"{ent} controverse",
+                    f"{ent} critiques",
+                    f"{ent} biographie",
+                    f"{ent} politique"
+                ]
+            recherches = search_web_results(queries, per_query=4)
+
+            # 3) Fusion IA : comparer texte vs résultats
+            synth_prompt = f"""
+            Compare le texte suivant :
+            {text[:3500]}
+
+            Avec ces résultats de recherche (médias généralistes fiables et agences) :
+            {json.dumps(recherches, ensure_ascii=False, indent=2)}
+
+            Ton rôle :
+            1. Identifier les **faits précis manquants** (dates, chiffres, citations, critiques, décisions officielles) à ajouter.
+            2. Signaler les **contradictions** ou corrections notables entre le texte et les sources.
+            3. Évaluer la **fiabilité** globale des sources (diversité, réputation).
+            4. Estimer l’**impact** des manques/contradictions sur la compréhension du lecteur (faible / moyen / fort).
+            5. Résumer en 2 phrases utiles.
+
+            Réponds en JSON strict :
+            {{
+              "faits_manquants": [
+                {{"texte": "<fait ajouté>", "source": "<média>", "url": "<url ou null>"}}
+              ],
+              "contradictions": ["<phrase>", "..."],
+              "impact": "<faible|moyen|fort>",
+              "fiabilite_sources": "<phrase brève>",
+              "synthese": "<2 phrases de résumé>"
+            }}
+            """
+            synth_resp = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Tu es un fact-checker journalistique expert et neutre."},
+                    {"role": "user", "content": synth_prompt}
+                ],
+                temperature=0.3
+            )
+
+            try:
+                result = json.loads(synth_resp.choices[0].message.content.strip())
+            except Exception:
+                # fallback compact si parsing impossible
+                result = {
+                    "faits_manquants": [],
+                    "contradictions": [],
+                    "impact": "faible",
+                    "fiabilite_sources": "Synthèse non structurée.",
+                    "synthese": "La synthèse n'a pas pu être structurée."
+                }
+
+            # joindre les recherches brutes pour le front / debug
+            result["recherches_effectuees"] = recherches
+            # normaliser impact
+            impact = (result.get("impact") or "faible").strip().lower()
+            if impact not in ("faible", "moyen", "fort"):
+                impact = "faible"
+            result["impact"] = impact
+
+            # nettoyer faits_manquants (format stable)
+            fm = []
+            for f in result.get("faits_manquants", []) or []:
+                if isinstance(f, dict) and f.get("texte"):
+                    fm.append({
+                        "texte": str(f.get("texte")).strip(),
+                        "source": (f.get("source") or "").strip() or None,
+                        "url": (f.get("url") or "").strip() or None
+                    })
+            result["faits_manquants"] = fm
+
+            # contradictions => liste de str
+            contr = []
+            for c in result.get("contradictions", []) or []:
+                if isinstance(c, str) and c.strip():
+                    contr.append(c.strip())
+            result["contradictions"] = contr
+
+            return result
+
+        except Exception as e:
+            print("⚠️ Web context failed:", e)
+            return {
+                "recherches_effectuees": [],
+                "faits_manquants": [],
+                "contradictions": [],
+                "impact": "faible",
+                "fiabilite_sources": "Recherche contextuelle non disponible.",
+                "synthese": "Recherche contextuelle non disponible."
+            }
+
+    web_info = web_context_research(text) if ENABLE_CONTEXT_BOX else {
+        "recherches_effectuees": [],
+        "faits_manquants": [],
+        "contradictions": [],
+        "impact": "faible",
+        "fiabilite_sources": "Contexte non activé.",
+        "synthese": "Contexte non activé."
+    }
+
+    # ======================================================
+    # 🧠 Étape 3 — Analyse principale complète
     # ======================================================
     prompt = f"""
     Tu es **De Facto**, un analyste de contenu journalistique.  
@@ -151,45 +399,22 @@ def analyze():
     - Ton 🔴 : « L’expression “enfin condamné” montre un parti pris implicite. »
     - Sophismes 🟡 : « L’auteur généralise à partir d’un seul témoignage. »
 
-
     ### 📰 Conscience du média
     Si le texte provient d’un média connu, identifie son orientation ou ton éditorial habituel
-    (ex. CNews, Mediapart, Le Figaro, Libération, etc.)
     et explique si cela peut influencer la présentation des faits.
 
-    Exemples :
-    - « CNews, souvent perçu comme orienté à droite, met l’accent sur les critiques de la gauche et minimise les contre-arguments. »
-    - « Mediapart adopte une approche plus militante, ce qui explique le ton accusatoire. »
-    - « Le Monde privilégie un ton factuel et analytique. »
-
     ---
 
-    #### 🔍 Confiance de l’analyse
-Ce score indique **dans quelle mesure ton évaluation du texte est fiable**, pas la fiabilité du texte lui-même.
-
-Rédige une phrase simple expliquant pourquoi la confiance de l’analyse est à ce niveau, 
-sans répéter le pourcentage ni la mention “Confiance faible/moyenne/élevée”.  
-Donne une raison concrète liée au texte : longueur, structure, ton ironique, caractère tronqué, ou densité factuelle.
-
-**Exemples :**
-- « Analyse fiable car le texte est clair et bien structuré. »
-- « Texte court ou tronqué, ce qui limite la fiabilité de l’analyse. »
-- « Ton ironique et ambigu, ce qui rend l’interprétation prudente. »
-
-
+    ### 🌍 Compléments factuels trouvés sur le Web (à exploiter)
+    {json.dumps(web_info, ensure_ascii=False, indent=2)}
 
     ---
-
-    #### 💭 Hypothèse éditoriale
-    Explique brièvement pourquoi le texte est rédigé de cette manière selon son cadrage médiatique.
-
-    ---
-
-    #### ⚠️ Transparence
-    - Si le texte est un extrait, le signaler.
-    - Mentionner qu’il s’agit d’une **analyse IA expérimentale.**
-
-    ---
+### ⚔️ Instruction spéciale — mode "analyse investigatrice"
+Utilise les résultats de la recherche Web pour :
+- Citer les faits précis absents du texte, avec leurs sources.
+- Évaluer la gravité de ces omissions : si elles changent la compréhension globale, abaisse fortement la note de complétude.
+- Si une contradiction claire est trouvée, baisse la note de justesse.
+- Mentionne ces faits manquants explicitement dans le commentaire et le résumé.
 
     ### 🧾 Texte à analyser :
     ---
@@ -198,7 +423,7 @@ Donne une raison concrète liée au texte : longueur, structure, ton ironique, c
     """
 
     try:
-        signal.alarm(30)
+        signal.alarm(45)
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -210,8 +435,6 @@ Donne une raison concrète liée au texte : longueur, structure, ton ironique, c
         signal.alarm(0)
 
         raw = resp.choices[0].message.content.strip()
-
-        # Parsing JSON tolérant
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
@@ -220,48 +443,108 @@ Donne une raison concrète liée au texte : longueur, structure, ton ironique, c
                 return jsonify({"error": "Réponse GPT non conforme (non JSON)"}), 500
             result = json.loads(m.group(0))
 
-        # Valeurs par défaut
+        # ======================================================
+        # Post-traitement enrichi
+        # ======================================================
         result.setdefault("confiance_analyse", 80)
-        result.setdefault("limites_analyse_ia", [])
-        result.setdefault("limites_analyse_contenu", [])
-        result.setdefault("recherches_effectuees", [])
-        result.setdefault("methode", {})
+        result.setdefault("type_texte", type_texte)
+        result.setdefault("densite_faits", densite_faits)
 
-        # Couleurs
+        # 🎯 Pondération douce du score global selon densité factuelle
         if "score_global" in result:
-            result["couleur_global"] = color_for(int(result["score_global"]))
-        axes = result.get("axes", {})
-        for bloc in ("fond", "forme"):
-            for crit in (axes.get(bloc) or {}).values():
-                if isinstance(crit, dict) and "note" in crit:
-                    crit.setdefault("couleur", color_for(int(crit["note"])))
+            sg = int(result["score_global"])
+            if densite_faits > 60:
+                sg = min(sg + 5, 100)
+            elif densite_faits < 30:
+                sg = max(sg - 5, 0)
+            result["score_global"] = sg
+            result["couleur_global"] = color_for(sg)
 
-        # Transparence
-        if ENABLE_TRANSPARENCY:
-            if texte_tronque:
-                result["limites_analyse_contenu"].append(
-                    f"Analyse effectuée sur un extrait (max {MAX_LEN} caractères sur {original_length})."
-                )
-            if not any("Analyse expérimentale" in x for x in result["limites_analyse_ia"]):
-                result["limites_analyse_ia"].append(
-                    "Analyse expérimentale : De Facto est en amélioration continue et peut comporter des imprécisions."
-                )
+        # 🔎 Ajoute info sur le contenu du texte
+        result["composition"] = {
+            "faits": fact_mix["faits"],
+            "opinions": fact_mix["opinions"],
+            "autres": fact_mix["autres"],
+            "densite_faits": densite_faits
+        }
 
-        # ======================================================
-        # 🪣 Sauvegarde historique locale
-        # ======================================================
+        # 🌍 Insère le contexte Web brute pour le front
+        result["faits_complementaires"] = web_info.get("faits_manquants", [])
+        result["contexte_synthese"] = web_info.get("synthese")
+        result["contexte_impact"] = web_info.get("impact")
+        result["contexte_contradictions"] = web_info.get("contradictions", [])
+        result["contexte_fiabilite_sources"] = web_info.get("fiabilite_sources", "")
+        result["recherches_effectuees"] = web_info.get("recherches_effectuees", [])
+
+        # 🧮 PONDÉRATION INTELLIGENTE SELON LE CONTEXTE WEB
+        # Barème explicite :
+        # - Contradictions : -20 (≥2), -10 (1)
+        # - Faits manquants : -25 (≥3), -15 (2), -8 (1) sur complétude
+        # - Impact global "moyen" : -5 sur score global ; "fort" : -10
+        axes = result.get("axes", {}) or {}
+        fond = axes.get("fond", {}) or {}
+        justesse = (fond.get("justesse", {}) or {}).get("note", 70)
+        completude = (fond.get("completude", {}) or {}).get("note", 70)
+
+        nb_contrad = len(web_info.get("contradictions", []) or [])
+        nb_faits = len(web_info.get("faits_manquants", []) or [])
+        impact = (web_info.get("impact") or "faible").lower()
+
+        # Ajustements justesse par contradictions
+        if nb_contrad >= 2:
+            justesse -= 20
+        elif nb_contrad == 1:
+            justesse -= 10
+
+        # Ajustements complétude par faits manquants
+        if nb_faits >= 3:
+            completude -= 25
+        elif nb_faits == 2:
+            completude -= 15
+        elif nb_faits == 1:
+            completude -= 8
+
+        # Clamps 0..100
+        justesse = max(0, min(100, int(justesse)))
+        completude = max(0, min(100, int(completude)))
+
+        # Replace in result if structure exists
+        if "fond" in axes:
+            if "justesse" in axes["fond"]:
+                axes["fond"]["justesse"]["note"] = justesse
+                axes["fond"]["justesse"]["couleur"] = color_for(justesse)
+            if "completude" in axes["fond"]:
+                axes["fond"]["completude"]["note"] = completude
+                axes["fond"]["completude"]["couleur"] = color_for(completude)
+
+        # Ajustement score global par impact
+        if "score_global" in result:
+            if "fort" in impact:
+                result["score_global"] = max(0, result["score_global"] - 10)
+            elif "moyen" in impact:
+                result["score_global"] = max(0, result["score_global"] - 5)
+            result["couleur_global"] = color_for(result["score_global"])
+
+        # ✅ (Optionnel) Enregistrer une trace pour /logs
         try:
-            log_entry = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "input_excerpt": text[:300],
+            log_item = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "input_len": original_length,
+                "texte_tronque": bool(texte_tronque),
+                "type_texte": type_texte,
+                "densite_faits": densite_faits,
+                "web_faits_manquants": nb_faits,
+                "web_contradictions": nb_contrad,
+                "web_impact": impact,
                 "score_global": result.get("score_global"),
+                "axes": result.get("axes", {}),
                 "resume": result.get("resume"),
-                "commentaire": result.get("commentaire")
+                "commentaire": result.get("commentaire"),
             }
             with open("logs.jsonl", "a", encoding="utf-8") as f:
-                f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+                f.write(json.dumps(log_item, ensure_ascii=False) + "\n")
         except Exception as e:
-            print("⚠️ Impossible d’écrire le log :", e)
+            print("ℹ️ Échec d'écriture logs.jsonl :", e)
 
         return jsonify(result)
 
@@ -283,8 +566,11 @@ def get_logs():
         if os.path.exists("logs.jsonl"):
             with open("logs.jsonl", "r", encoding="utf-8") as f:
                 for line in f:
-                    logs.append(json.loads(line))
-        logs = sorted(logs, key=lambda x: x["timestamp"], reverse=True)[:50]
+                    try:
+                        logs.append(json.loads(line))
+                    except Exception:
+                        continue
+        logs = sorted(logs, key=lambda x: x.get("timestamp", ""), reverse=True)[:50]
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     return jsonify(logs)
@@ -295,7 +581,7 @@ def get_logs():
 # ======================================================
 @app.route("/version")
 def version():
-    return jsonify({"version": "De Facto v2.3-hist-complete", "status": "✅ actif"})
+    return jsonify({"version": "De Facto v2.7-explicable-CSE", "status": "✅ actif"})
 
 
 # ======================================================

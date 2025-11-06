@@ -97,6 +97,57 @@ def search_web_results(queries, per_query=5, pause=0.5):
             continue
     return all_hits
 
+
+
+
+
+
+
+
+
+# ======================================================
+# 🧩 Commentaire web
+# ======================================================
+
+def formate_commentaires_web(web_info):
+    """Crée un commentaire journalistique à partir des faits manquants, contradictions et divergences."""
+    commentaires = []
+
+    # Contradictions : ton “fact-check” nuancé
+    for c in web_info.get("contradictions", []) or []:
+        if isinstance(c, dict):
+            commentaires.append(
+                f"Selon {c.get('source', 'une source')}, {c.get('correction_ou_nuance', '').strip()} "
+                f"ce qui nuance l’affirmation du texte ({c.get('affirmation_du_texte', '').strip()})."
+            )
+        elif isinstance(c, str):
+            commentaires.append(c.strip())
+
+    # Faits manquants : ton “analyse critique”
+    for f in web_info.get("faits_manquants", []) or []:
+        if isinstance(f, dict):
+            commentaires.append(
+                f"Le texte n’évoque pas {f.get('description', '').strip()} "
+                f"(mentionné par {f.get('source', 'une autre source')}). "
+                f"{f.get('explication', '').strip()}"
+            )
+
+    # Divergences de cadrage : ton “analyse narrative”
+    for d in web_info.get("divergences_de_cadrage", []) or []:
+        if isinstance(d, dict):
+            commentaires.append(
+                f"Le cadrage diffère : {d.get('resume', '').strip()} "
+                f"{d.get('impact', '').strip()}"
+            )
+
+    # Synthèse finale (courte)
+    synth = web_info.get("synthese", "")
+    if synth:
+        commentaires.append(synth.strip())
+
+    return " ".join(commentaires[:5]) or "Aucun écart majeur entre le texte et les sources consultées."
+
+
 # ======================================================
 # 🧩 Route principale : analyse
 # ======================================================
@@ -245,34 +296,66 @@ def analyze():
                     f"{ent} biographie",
                     f"{ent} politique"
                 ]
+            
+            print("🌍 Recherche web activée — entités détectées :", entities)
             recherches = search_web_results(queries, per_query=4)
+            print("✅ Recherche web terminée, résultats trouvés :", len(recherches))
 
             # 3) Fusion IA : comparer texte vs résultats
             synth_prompt = f"""
-            Compare le texte suivant :
-            {text[:3500]}
+            Tu es un assistant d'analyse journalistique et de fact-checking avancé.
+            Ta mission est d’évaluer le texte fourni en le confrontant à des sources d’information fiables du web.
+            Tu dois adopter une approche nuancée, capable de détecter :
+            - les faits complémentaires,
+            - les omissions,
+            - les divergences de cadrage,
+            - et les interprétations différentes ou contraires.
 
-            Avec ces résultats de recherche (médias généralistes fiables et agences) :
+            TEXTE À ANALYSER :
+            {text}
+
+            SOURCES WEB :
             {json.dumps(recherches, ensure_ascii=False, indent=2)}
 
-            Ton rôle :
-            1. Identifier les **faits précis manquants** (dates, chiffres, citations, critiques, décisions officielles) à ajouter.
-            2. Signaler les **contradictions** ou corrections notables entre le texte et les sources.
-            3. Évaluer la **fiabilité** globale des sources (diversité, réputation).
-            4. Estimer l’**impact** des manques/contradictions sur la compréhension du lecteur (faible / moyen / fort).
-            5. Résumer en 2 phrases utiles.
+            Tu répondras en JSON structuré, selon le format suivant :
 
-            Réponds en JSON strict :
             {{
               "faits_manquants": [
-                {{"texte": "<fait ajouté>", "source": "<média>", "url": "<url ou null>"}}
+                {{
+                  "description": "Décris un fait, une donnée, un acteur ou un point de vue pertinent non mentionné dans le texte, mais présent dans les sources.",
+                  "source": "<nom du média ou acteur>",
+                  "url": "<lien vers la source>",
+                  "explication": "Explique comment cette omission ou ce complément modifierait la compréhension du texte (ex: change l’équilibre, nuance une affirmation, apporte un contexte contradictoire, etc.)."
+                }}
               ],
-              "contradictions": ["<phrase>", "..."],
-              "impact": "<faible|moyen|fort>",
-              "fiabilite_sources": "<phrase brève>",
-              "synthese": "<2 phrases de résumé>"
+              "contradictions": [
+                {{
+                  "affirmation_du_texte": "Phrase, idée ou ton du texte à confronter.",
+                  "correction_ou_nuance": "Énonce ce que disent les sources web (faits, citations, chiffres, etc.) qui contredisent ou relativisent l'affirmation.",
+                  "source": "<média ou acteur>",
+                  "url": "<lien>"
+                }}
+              ],
+              "divergences_de_cadrage": [
+                {{
+                  "resume": "Décris un écart d'angle, de ton ou de narration entre le texte et les sources (par ex : l’article met l’accent sur X alors que les sources insistent sur Y).",
+                  "impact": "Explique en quoi ce cadrage différent influence la perception du lecteur."
+                }}
+              ],
+              "impact_global": "<faible|moyen|fort>",
+              "fiabilite_sources": "Décris brièvement la crédibilité, diversité et cohérence des sources trouvées.",
+              "synthese": "Rédige une synthèse fluide (3–6 phrases) qui explique comment le texte se positionne par rapport aux faits établis et aux autres récits du web. Sois analytique, nuancé et journalistique — ni moralisateur ni mécanique."
             }}
+
+            Règles de style :
+            - Adopte un ton journalistique neutre, comme dans une rubrique de fact-checking du Monde, Reuters ou AFP.
+            - Évite les jugements (“faux”, “mensonger”) sauf si la contradiction est flagrante.
+            - Sois capable d’intégrer plusieurs angles (scientifique, politique, social) selon le sujet.
+            - Si les sources ne permettent pas de confirmer ni d’infirmer, dis-le explicitement.
+            - Ne dupliques pas les extraits ; reformule clairement.
             """
+
+
             synth_resp = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -281,6 +364,22 @@ def analyze():
                 ],
                 temperature=0.3
             )
+
+            content = synth_resp.choices[0].message.content.strip()
+            try:
+                web_summary = json.loads(content)
+            except Exception:
+                m = re.search(r"\{.*\}", content, re.DOTALL)
+                web_summary = json.loads(m.group(0)) if m else {
+                    "faits_manquants": [],
+                    "contradictions": [],
+                    "impact": "faible",
+                    "fiabilite_sources": "Réponse non structurée.",
+                    "synthese": "Le modèle n’a pas pu formater correctement la réponse."
+                }
+
+            return web_summary
+
 
             try:
                 result = json.loads(synth_resp.choices[0].message.content.strip())
@@ -346,100 +445,146 @@ def analyze():
     # 🧠 Étape 3 — Analyse principale complète
     # ======================================================
     prompt = f"""
-    Tu es **De Facto**, un analyste de contenu journalistique.  
-    Ton rôle est d'évaluer un texte selon deux axes : **FOND** (justesse, complétude) et **FORME** (ton, sophismes),  
-    puis de produire une **analyse claire, utile et concrète**.
+    Tu es **De Facto**, un analyste journalistique expert et nuancé.  
+    Tu évalues un texte selon quatre critères : **Justesse**, **Complétude**, **Ton** et **Sophismes**.  
+    Ton objectif : aider un lecteur à comprendre **ce qui est vrai, ce qui manque, et comment le texte oriente sa perception**.
 
     ---
 
-    ### 🎯 Objectif
-    Fournir une **analyse journalistique enrichissante**, pas une évaluation scolaire.  
-    Chaque réponse doit **aider l'utilisateur à comprendre ce que le texte dit, oublie, ou oriente.**
+    ## 🧭 Règle d’or : penser comme un journaliste, pas comme une IA
+
+    Chaque justification doit être une **mini-analyse critique complète** :
+    - Jamais une phrase creuse (“le texte omet X”).
+    - Toujours répondre à ces **3 questions concrètes** :
+      1. Que dit ou ne dit pas le texte ?
+      2. Que montrent les sources fiables à ce sujet ?
+      3. Qu’est-ce que cela change dans la perception du lecteur ?
 
     ---
 
-    ### 🧩 Structure de sortie (STRICT JSON)
-    Tu répondras **uniquement** en JSON au format suivant :
+    ## 🧩 Format JSON attendu
+
     {{
-      "score_global": <int>,
-      "couleur_global": "<emoji>",
       "axes": {{
         "fond": {{
-          "justesse": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase claire>", "citation": "<<=20 mots ou null>"}},
-          "completude": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase claire>", "citation": "<<=20 mots ou null>"}}
+          "justesse": {{
+            "note": <int>,
+            "couleur": "<emoji>",
+            "justification": "<3–6 phrases analytiques, concrètes et contextualisées.>",
+            "citation": "<extrait court du texte>"
+          }},
+          "completude": {{
+            "note": <int>,
+            "couleur": "<emoji>",
+            "justification": "<3–6 phrases. Décris les points ou contre-arguments absents et leurs implications sur la compréhension.>",
+            "citation": "<extrait court>"
+          }}
         }},
         "forme": {{
-          "ton": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase claire>", "citation": "<<=20 mots ou null>"}},
-          "sophismes": {{"note": <int>, "couleur": "<emoji>", "justification": "<phrase claire>", "citation": "<<=20 mots ou null>"}}
+          "ton": {{
+            "note": <int>,
+            "couleur": "<emoji>",
+            "justification": "<3–5 phrases. Analyse le choix des mots, leur effet sur le lecteur, et le cadrage implicite.>",
+            "citation": "<passage révélant la tonalité>"
+          }},
+          "sophismes": {{
+            "note": <int>,
+            "couleur": "<emoji>",
+            "justification": "<2–4 phrases. Analyse les raisonnements implicites, raccourcis ou erreurs logiques.>",
+            "citation": "<extrait illustratif>"
+          }}
         }}
       }},
-      "commentaire": "<2 phrases de synthèse journalistique>",
-      "resume": "<3 phrases synthétiques, utiles et percutantes>",
+      "score_global": <int>,
       "confiance_analyse": <int>,
-      "explication_confiance": "<phrase expliquant pourquoi la confiance est à ce niveau>",
-      "hypothese_interpretative": "<1 phrase : raison possible du ton ou du cadrage médiatique>",
-      "limites_analyse_ia": ["<texte>", "..."],
-      "limites_analyse_contenu": ["<texte>", "..."],
-      "recherches_effectuees": ["<résumé court>", "..."],
-      "methode": {{
-        "principe": "De Facto évalue le texte selon deux axes : FOND (justesse, complétude) et FORME (ton, sophismes).",
-        "criteres": {{
-          "fond": "Justesse (véracité/sources) et complétude (pluralité/contre-arguments).",
-          "forme": "Ton (neutralité lexicale) et sophismes (raisonnements fallacieux)."
-        }},
-        "avertissement": "Analyse expérimentale — le modèle peut commettre des erreurs."
-      }}
+      "explication_confiance": "<phrase simple>",
+      "recherches_effectuees": ["<résumé court>", "..."]
     }}
 
     ---
 
-    ### 🧠 Directives pour chaque section
+    ## 🧩 Définitions claires et barème
 
-    #### 🟩 Synthèse globale (commentaire + résumé)
-    Rédige comme un mini article.  
-    Mets en avant **ce qui manque, ce qui biaise, ou ce qui change la compréhension**.
-
-    **Exemples :**
-    - « L’article présente les faits judiciaires de manière exacte mais omet les arguments de la défense, ce qui oriente la lecture. »
-    - « Le texte décrit l’émotion du public sans rappeler les faits de base, créant une impression partielle. »
-    - « Les données chiffrées sont exactes mais décontextualisées, ce qui exagère la gravité du phénomène. »
-
-    À éviter :
-    - « Le ton est neutre. »
-    - « Le texte manque de détails. »
+    | Critère | Question clé | Interprétation |
+    |----------|---------------|----------------|
+    | **Justesse** | Les faits et citations sont-ils exacts selon les sources fiables ? | 100 = vérifié et précis / 70 = plausible / 40 = douteux / 0 = faux |
+    | **Complétude** | Le texte montre-t-il les autres points de vue pertinents ? | 100 = complet / 70 = partiel / 40 = sélectif / 0 = trompeur |
+    | **Ton** | Le ton influence-t-il la perception du lecteur ? | 100 = neutre / 70 = implicite / 40 = orienté / 0 = militant |
+    | **Sophismes** | Le raisonnement est-il rigoureux et logique ? | 100 = solide / 70 = simplifié / 40 = biaisé / 0 = trompeur |
 
     ---
 
-    #### 🧩 Détails des 4 critères
+    ## 📖 Exemples précis (à imiter dans le style et la profondeur)
 
-    **Exemples de bonnes justifications :**
-    - Justesse 🟢 : « L’auteur cite la condamnation de 2021 avec précision. »
-    - Complétude 🟡 : « Aucune mention des arguments adverses. »
-    - Ton 🔴 : « L’expression “enfin condamné” montre un parti pris implicite. »
-    - Sophismes 🟡 : « L’auteur généralise à partir d’un seul témoignage. »
+    ### ✅ Justesse — Évaluer la véracité factuelle
+    **Mauvais exemple :**  
+    > “Le texte parle de Nicolas Revel mais ne cite pas ses fonctions.”  
+    ➡ Trop vague, pas de contexte.
 
-    ### 📰 Conscience du média
-    Si le texte provient d’un média connu, identifie son orientation ou ton éditorial habituel
-    et explique si cela peut influencer la présentation des faits.
+    **Bon exemple :**  
+    > “Le texte affirme que Nicolas Revel pourrait devenir Premier ministre sans préciser qu’aucune confirmation officielle n’a été donnée.  
+    > Or, selon *Le Monde* et *Reuters*, la nomination restait hypothétique à la date de publication.  
+    > Cette omission peut donner au lecteur l’impression que la décision était actée, alors qu’elle ne l’était pas encore.”
+
+
+    ### ✅ Complétude — Évaluer les angles manquants
+    **Mauvais exemple :**  
+    > “Le texte ne mentionne pas les réactions de l’opposition.”  
+    ➡ Inutile, sans conséquence.
+
+    **Bon exemple :**  
+    > “L’article ne rapporte pas les critiques de l’opposition, qui dénonçaient un retour de la technocratie.  
+    > Cette absence fait croire à un consensus autour de la nomination, alors qu’elle divisait la classe politique.  
+    > Cela atténue la portée politique de la décision et réduit la diversité des points de vue présentés.”
+
+
+    ### ✅ Ton — Évaluer le cadrage implicite et les effets de langage
+    **Mauvais exemple :**  
+    > “Le ton est neutre.”  
+    ➡ Vide.
+
+    **Bon exemple :**  
+    > “L’expression ‘profil technique’ donne une image apolitique de Nicolas Revel, alors que sa carrière est marquée par des choix politiques.  
+    > Ce cadrage valorise la compétence administrative et minimise les rapports de force institutionnels.  
+    > Le lecteur peut ainsi percevoir la nomination comme purement rationnelle, non comme une stratégie politique.”
+
+
+    ### ✅ Sophismes — Évaluer la rigueur argumentative
+    **Mauvais exemple :**  
+    > “Le texte simplifie la situation.”  
+    ➡ Trop abstrait.
+
+    **Bon exemple :**  
+    > “L’article associe implicitement ‘compétence technique’ et ‘acceptabilité politique’, comme si l’un garantissait l’autre.  
+    > Or, cette causalité est discutable : plusieurs gouvernements technocratiques ont échoué malgré leur expertise.  
+    > Ce raccourci logique renforce une idée trompeuse d’efficacité apolitique.”
+
 
     ---
 
-    ### 🌍 Compléments factuels trouvés sur le Web (à exploiter)
+    ## 🧠 Règles de style
+    - Phrases claires, précises, journalistiques.
+    - Chaque justification doit pouvoir se lire seule, comme un mini paragraphe de fact-checking.
+    - Cites une **phrase exacte du texte** (entre guillemets) pour appuyer ton propos.
+    - Évite les tournures vagues : “il semble”, “il manque de détails”.
+    - Toujours : **analyse concrète → explication → impact.**
+
+    ---
+
+    ## 🌍 Contexte web disponible :
     {json.dumps(web_info, ensure_ascii=False, indent=2)}
 
-    ---
-### ⚔️ Instruction spéciale — mode "analyse investigatrice"
-Utilise les résultats de la recherche Web pour :
-- Citer les faits précis absents du texte, avec leurs sources.
-- Évaluer la gravité de ces omissions : si elles changent la compréhension globale, abaisse fortement la note de complétude.
-- Si une contradiction claire est trouvée, baisse la note de justesse.
-- Mentionne ces faits manquants explicitement dans le commentaire et le résumé.
+    Utilise ces sources seulement si elles sont pertinentes, jamais pour inventer.
 
-    ### 🧾 Texte à analyser :
     ---
+
+    ## 🧾 Texte à analyser :
     {text}
-    ---
     """
+
+
+
+
 
     try:
         signal.alarm(45)
@@ -565,6 +710,23 @@ Utilise les résultats de la recherche Web pour :
         except Exception as e:
             print("ℹ️ Échec d'écriture logs.jsonl :", e)
 
+        # 🔍 Intégration narrative du contexte web
+        commentaire_web = formate_commentaires_web(web_info)
+        if "commentaire" in result and isinstance(result["commentaire"], str):
+            result["commentaire"] += " " + commentaire_web
+        else:
+            result["commentaire"] = commentaire_web
+
+        # Bonus : renforce le résumé avec la synthèse web si disponible
+        if web_info.get("synthese"):
+            if "resume" in result and isinstance(result["resume"], str):
+                result["resume"] += " " + web_info["synthese"]
+            else:
+                result["resume"] = web_info["synthese"]
+
+        
+        print("🧠 Synthèse web contextuelle :", json.dumps(web_info, ensure_ascii=False, indent=2))
+        
         return jsonify(result)
 
     except TimeoutError:

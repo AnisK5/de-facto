@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>De Facto – Analyse de fiabilité</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #fff;
+      --text: #1c1c1c;
+      --muted: #667085;
+      --primary: #0a4a9a;
+      --ok: #14a44d;
+      --warn: #f4a100;
+      --bad: #d33c3c;
+      --bar: #e9eef6;
+      --shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+      --ring: rgba(10, 74, 154, 0.15);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* -------- HEADER -------- */
+    header {
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 0.4rem;
+    }
+
+    .brand img.logo {
+      width: 56px;
+      height: auto;
+      filter: drop-shadow(0 2px 6px rgba(43, 182, 208, 0.25));
+      animation: pulseGlow 3s ease-in-out infinite;
+      transition: transform 0.4s ease, filter 0.4s ease;
+    }
+
+    .brand img.logo:hover {
+      transform: scale(1.06);
+      filter: drop-shadow(0 3px 12px rgba(43, 182, 208, 0.45));
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% { filter: drop-shadow(0 2px 6px rgba(43,182,208,0.25)); }
+      50% { filter: drop-shadow(0 4px 14px rgba(43,182,208,0.45)); }
+    }
+
+    header h1 {
+      font-size: clamp(2.3rem, 4vw, 3rem);
+      margin: 0;
+      color: var(--text);
+      transition: all 0.3s ease;
+    }
+
+    header h1:hover {
+      color: var(--primary);
+      text-shadow: 0 0 10px rgba(10, 74, 154, 0.25);
+      transform: translateY(-2px);
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin: 0.5rem 0 0.2rem;
+    }
+
+
+    /* -------- MAIN (centré verticalement) -------- */
+    main {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 85vh;
+      padding: 0 1rem;
+      transition: all 0.6s ease;
+      position: relative;
+    }
+
+    /* -------- INPUT WRAPPER -------- */
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 760px;
+    }
+
+    /* -------- INPUT ROW -------- */
+    .input-row {
+      display: flex;
+      align-items: stretch;
+      width: 100%;
+      background: var(--card);
+      border: 1px solid #dfe3eb;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+      transition: all 0.25s ease;
+    }
+
+    .input-row:focus-within {
+      box-shadow: 0 0 0 6px var(--ring);
+      border-color: var(--primary);
+      transform: translateY(-1px);
+    }
+
+    textarea {
+      flex: 1;
+      padding: 16px 18px;
+      font-size: 15px;
+      border: none;
+      outline: none;
+      resize: none;
+      min-height: 120px;
+    }
+
+    button {
+      background: #ecf2ff;
+      color: var(--primary);
+      font-weight: 600;
+      border: none;
+      padding: 0 28px;
+      cursor: pointer;
+      border-left: 1px solid #e0e6f5;
+      transition: all 0.25s ease;
+    }
+
+    button:hover {
+      background: var(--primary);
+      color: #fff;
+      transform: scale(1.05);
+    }
+
+    /* -------- LOADER -------- */
+    .loader-wrapper {
+      position: absolute;
+      bottom: -60px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .loader-wrapper.active {
+      display: block;
+      opacity: 1;
+    }
+
+    .loader {
+      border: 3px solid #e3e7f3;
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* -------- RESULT -------- */
+    .result {
+      display: none;
+      opacity: 0;
+      transform: translateY(50px);
+      max-width: 940px;
+      margin: 3rem auto;
+      background: var(--card);
+      border-radius: 16px;
+      padding: clamp(1.5rem, 3vw, 2.4rem);
+      box-shadow: var(--shadow);
+      transition: opacity 0.8s ease, transform 0.8s ease;
+    }
+
+    .result.visible {
+      display: block;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .score-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 2rem;
+      animation: fadeInUp 1s ease forwards;
+    }
+
+    @keyframes fadeInUp {
+      0% { opacity: 0; transform: translateY(20px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .score-main { flex: 1; min-width: 260px; }
+    .score-main h2 { margin: 0; font-size: 2rem; font-weight: 700; }
+
+    .progress {
+      height: 10px;
+      background: var(--bar);
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 0.8rem 0 1.2rem;
+    }
+
+    .progress-fill { height: 100%; transition: width 0.6s ease; }
+
+    .confidence {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .summary-box {
+      background: #f9fafc;
+      border-left: 4px solid var(--primary);
+      padding: 14px 18px;
+      border-radius: 6px;
+      margin-top: 1.5rem;
+      font-size: 0.97rem;
+      line-height: 1.7;
+      opacity: 0;
+      animation: fadeIn 1s 0.4s forwards;
+    }
+
+    @keyframes fadeIn { to { opacity: 1; } }
+
+    .radar-wrap {
+      width: 340px;
+      height: 340px;
+      margin: 1rem auto;
+      opacity: 0;
+      animation: fadeInScale 1s 0.8s forwards;
+    }
+
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+      opacity: 0;
+      animation: fadeIn 1s 1.2s forwards;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e0e6f0;
+      border-radius: 12px;
+      padding: 1.4rem;
+      transition: box-shadow 0.3s ease, transform 0.3s ease;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+      position: relative;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 22px rgba(10, 74, 154, 0.1);
+      border-color: rgba(10, 74, 154, 0.25);
+    }
+
+    .card h3 {
+      margin: 0 0 6px;
+      color: var(--primary);
+      font-size: 1.05rem;
+    }
+
+    .tooltip {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .bar {
+      height: 10px;
+      background: var(--bar);
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 6px 0 10px;
+    }
+
+    .fill { height: 100%; transition: width 0.6s ease; }
+    .fill.ok { background: var(--ok); }
+    .fill.warn { background: var(--warn); }
+    .fill.bad { background: var(--bad); }
+
+    blockquote {
+      background: #f7f9fc;
+      border-left: 4px solid var(--primary);
+      margin: 8px 0;
+      padding: 8px 12px;
+      font-style: italic;
+      color: #333;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <header>
+      <div class="brand">
+        <img src="logo.png" alt="De Facto logo" class="logo" />
+        <h1>De Facto</h1>
+      </div>
+      <p>Collez un lien d'article ou son contenu, et découvrez s’il est fiable.</p>
+    </header>
+
+
+    <div class="input-wrapper">
+      <div class="input-row">
+        <textarea id="inputText" placeholder="https://www.media.fr/"></textarea>
+        <button id="analyzeBtn">Analyser</button>
+      </div>
+      <div class="loader-wrapper"><div class="loader" id="loader"></div></div>
+    </div>
+  </main>
+
+  <section id="result" class="result"></section>
+
+  <script>
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname.includes("replit");
+    const API = isLocal ? "/analyze" : "https://de-facto-backend.onrender.com/analyze";
+    const $ = s => document.querySelector(s);
+    const resultDiv = $("#result");
+    const loader = $("#loader");
+
+    $("#analyzeBtn").onclick = async () => {
+      const text = $("#inputText").value.trim();
+      if (!text) return alert("Merci d’entrer un texte ou une URL.");
+      loader.parentElement.classList.add("active");
+      resultDiv.classList.remove("visible");
+
+      try {
+        const r = await fetch(API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        const d = await r.json();
+        if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+        loader.parentElement.classList.remove("active");
+        render(d);
+        window.scrollTo({ top: resultDiv.offsetTop - 40, behavior: "smooth" });
+      } catch (e) {
+        loader.parentElement.classList.remove("active");
+        resultDiv.innerHTML = `<div style="color:#e74c3c;text-align:center;">❌ ${e.message}</div>`;
+        resultDiv.classList.add("visible");
+      }
+    };
+
+    function qualif(score) {
+    if (score >= 85) return "Très fiable";
+    if (score >= 70) return "Fiable";
+    if (score >= 50) return "Assez fiable";
+    if (score >= 30) return "Peu fiable";
+    return "Non fiable"; 
+
+      }  
+    
+    function render(d) {
+      resultDiv.innerHTML = "";
+      resultDiv.classList.add("visible");
+
+      const scoreColor = d.score_global >= 70 ? "var(--ok)" : d.score_global >= 40 ? "var(--warn)" : "var(--bad)";
+      const scoreSection = `
+        <!-- 🟩 Première carte : Score global + radar + Synthèse globale -->
+        <div class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:2rem;">
+
+          <!-- Colonne gauche : score + synthèse -->
+          <div style="flex:1;min-width:260px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <h2 style="margin:0;color:${scoreColor};">
+                ${safeNum(d.score_global)} / 100
+              </h2>
+              <span style="font-weight:600;color:${scoreColor};font-size:1.1rem;">
+                ${qualif(d.score_global)}
+              </span>
+            </div>
+
+            <div class="progress" style="margin-bottom:12px;">
+              <div class="progress-fill" style="width:${d.score_global || 0}%;background:${scoreColor};"></div>
+            </div>
+
+            <!-- 📰 Synthèse globale (remontée ici) -->
+            <div style="margin-bottom:16px;">
+              <p style="margin:0;">${esc(d.resume || d.commentaire || "Synthèse non disponible.")}</p>
+            </div>
+          </div>
+
+          <!-- Radar à droite -->
+          <div style="flex:0 0 300px;height:300px;">
+            <canvas id="radarChart"></canvas>
+          </div>
+
+        </div>
+
+        <!-- 🟦 Deuxième carte : Confiance de l’analyse enrichie -->
+<div class="card">
+  <p style="margin:0 0 6px;">
+    <b>Confiance de l’analyse :</b> ${safeNum(d.confiance_analyse)} % 
+    <span style="color:var(--muted);font-weight:400;margin-left:6px;">
+      – ${esc(d.explication_confiance || "Analyse interne : cohérence moyenne entre les critères.")}
+    </span>
+  </p>
+
+  <!-- 🧠 Ajout : informations techniques issues de la pré-analyse -->
+  <div style="margin:8px 0 10px;color:var(--muted);font-size:0.9rem;">
+    <p style="margin:0;">🗂 <b>Type de texte détecté :</b> ${esc(d.type_texte || "—")}</p>
+    <p style="margin:2px 0 0;">📊 <b>Densité factuelle :</b> ${safeNum(d.densite_faits)} %</p>
+  </div>
+
+  <p class="confidence" style="margin:0;">
+    <i>Analyse expérimentale : De Facto est en amélioration continue.</i>
+  </p>
+</div>
+
+      `;
+
+
+
+      resultDiv.insertAdjacentHTML("beforeend", scoreSection);
+
+      new Chart($("#radarChart"), {
+        type: "radar",
+        data: {
+          labels: ["Vrai", "Complet", "Neutre", "Clair"],
+          datasets: [{
+            data: [
+              d.axes?.fond?.justesse?.note || 0,
+              d.axes?.fond?.completude?.note || 0,
+              d.axes?.forme?.ton?.note || 0,
+              d.axes?.forme?.sophismes?.note || 0
+            ],
+            backgroundColor: "rgba(10,74,154,0.07)",
+            borderColor: "rgba(10,74,154,0.9)",
+            borderWidth: 2,
+            pointBackgroundColor: "#0a4a9a",
+            pointRadius: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { r: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { display: false },
+            grid: { color: "rgba(0,0,0,0.05)" },
+            angleLines: { color: "rgba(0,0,0,0.05)" },
+            pointLabels: { font: { size: 13, weight: 600 }, color: "#222" }
+          }},
+          plugins: { legend: { display: false } }
+        }
+      });
+
+      const fond = d.axes?.fond || {}, forme = d.axes?.forme || {};
+      const cards = `
+        <div class="cols">
+          ${card("Vrai", "Fidélité des faits", fond.justesse)}
+          ${card("Complet", "Richesse et diversité des infos", fond.completude)}
+          ${card("Neutre", "Absence de parti pris", forme.ton)}
+          ${card("Clair", "Cohérence de l’argumentation", forme.sophismes)}
+        </div>
+      `;
+      resultDiv.insertAdjacentHTML("beforeend", cards);
+    }
+
+    function card(title, tooltip, crit) {
+      if (!crit) return "";
+      const cls = emojiClass(crit.couleur);
+      const color =
+        cls === "ok" ? "var(--ok)" :
+        cls === "warn" ? "var(--warn)" :
+        cls === "bad" ? "var(--bad)" :
+        "var(--muted)";
+
+      // 🧠 Génère une qualification contextuelle selon le critère
+      function qualifSpecifique(title, note) {
+        if (title === "Vrai") {
+          if (note >= 85) return "Très fidèle aux faits";
+          if (note >= 70) return "Fidèle aux faits";
+          if (note >= 50) return "Partiellement exact";
+          if (note >= 30) return "Inexact";
+          return "Peu fiable";
+        }
+        if (title === "Complet") {
+          if (note >= 85) return "Très complet";
+          if (note >= 70) return "Assez complet";
+          if (note >= 50) return "Partiel";
+          if (note >= 30) return "Incomplet";
+          return "Très incomplet";
+        }
+        if (title === "Neutre") {
+          if (note >= 85) return "Tonalité très équilibrée";
+          if (note >= 70) return "Tonalité équilibrée";
+          if (note >= 50) return "Tonalité mitigée";
+          if (note >= 30) return "Tonalité biaisée";
+          return "Très biaisée";
+        }
+        if (title === "Clair") {
+          if (note >= 85) return "Raisonnement très cohérent";
+          if (note >= 70) return "Raisonnement cohérent";
+          if (note >= 50) return "Assez clair";
+          if (note >= 30) return "Confus";
+          return "Très confus";
+        }
+        return "";
+      }
+
+      const qualification = qualifSpecifique(title, crit.note);
+
+      return `
+        <div class="card">
+          <h3 style="margin:0 0 6px;">${esc(title)}</h3>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 6px;">
+            <p style="margin:0;font-weight:600;color:${color};">${safeNum(crit.note)} / 100</p>
+            <span style="font-weight:600;color:${color};font-size:0.95rem;text-align:right;">
+              ${qualification}
+            </span>
+          </div>
+
+          <div class="bar">
+            <div class="fill ${cls}" style="width:${crit.note || 0}%"></div>
+          </div>
+
+          <p style="margin-top:10px;">${esc(crit.justification || "—")}</p>
+          ${crit.citation ? `<blockquote>« ${esc(crit.citation)} »</blockquote>` : ""}
+        </div>
+      `;
+    }
+
+
+
+
+
+    function emojiClass(e) {
+      if (e === "🟢") return "ok";
+      if (e === "🟡") return "warn";
+      if (e === "🔴") return "bad";
+      return "";
+    }
+
+    function safeNum(v) { return (typeof v === "number" && isFinite(v)) ? v : "–"; }
+    function esc(str) { return (str || "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m])); }
+  </script>
+</body>
+</html>

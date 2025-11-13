@@ -1,3 +1,8 @@
+# ======================================================
+# 🔵 BLOC 1/6 — IMPORTS + PYDANTIC + CONFIGURATION
+# ======================================================
+
+# ------------ IMPORTS GÉNÉRAUX ------------
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
@@ -5,64 +10,216 @@ import os, signal, json, re, requests, urllib.parse, time
 from datetime import datetime
 from dotenv import load_dotenv
 
-# ======================================================
-# ⚙️ Feature flags — activables/désactivables sans casser
-# ======================================================
-ENABLE_SYNTHESIS = True       # Ajoute une synthèse narrative lisible
-ENABLE_CONTEXT_BOX = True     # Ajoute un éclairage contextuel court + web enrichi
-ENABLE_TRANSPARENCY = True    # Ajoute mentions "expérimental" et tronquage
-ENABLE_URL_EXTRACT = True     # Active Trafilatura (si URL fournie)
+# Recherche web / threads
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
+# ------------ PYDANTIC ------------
+from pydantic import BaseModel, Field, ValidationError
+from typing import List, Dict, Optional, Any
+
 
 # ======================================================
-# Flask setup
+# 🔧 CONFIG FLASK & OPENAI
 # ======================================================
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-# ======================================================
-# OpenAI client
-# ======================================================
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+ENABLE_URL_EXTRACT = True
+
 
 # ======================================================
-# Timeout (Render/Replit safety)
+# 🧩 MODÈLES PYDANTIC — CONTRAT JSON GARANTI
 # ======================================================
+
+# ---------- UN ITEM D’AXE ----------
+class AxeItem(BaseModel):
+    note: int = Field(default=50, ge=0, le=100)
+    justification: str = ""
+    exemple: str = ""
+    effet: str = ""
+    citation: str = ""
+    couleur: str = "⚪"
+
+
+# ---------- AXES FOND ----------
+class AxesFond(BaseModel):
+    justesse: AxeItem = AxeItem()
+    completude: AxeItem = AxeItem()
+
+
+# ---------- AXES FORME ----------
+class AxesForme(BaseModel):
+    ton: AxeItem = AxeItem()
+    sophismes: AxeItem = AxeItem()
+
+
+# ---------- STRUCTURE COMPLÈTE DES AXES ----------
+class Axes(BaseModel):
+    fond: AxesFond = AxesFond()
+    forme: AxesForme = AxesForme()
+
+
+# ---------- RÉPONSE FINALE (JSON RENVOYÉ AU FRONTEND) ----------
+class FinalResponse(BaseModel):
+    score_global: int = 50
+    couleur_global: str = "⚪"
+    resume: str = "Analyse non disponible."
+    commentaire: str = ""
+    commentaire_web: str = ""
+
+    # Pré-analyse
+    densite_faits: int = 0
+    type_texte: str = ""
+
+    # Faits/opinions/message global
+    message_global: Dict[str, Any] = {}
+    recherches_effectuees: List[Any] = []
+    faits_web: Dict[str, Any] = {}
+    diffs: Dict[str, Any] = {}
+
+    # Axes (structure propre)
+    axes: Axes = Axes()
+
+    # Compatibilité frontend
+    justesse: int = 50
+    completude: int = 50
+    ton: int = 50
+    sophismes: int = 50
+
+    # Débogage
+    web_context: Dict[str, Any] = {}
+
+    # Confiance interne
+    confiance_analyse: int = 70
+    explication_confiance: str = "Analyse interne : cohérence moyenne entre les critères."
+
+# ======================================================
+# 🟦 COMPLÉMENTS PYDANTIC MANQUANTS
+# ======================================================
+
+# Ce modèle décrit chaque entrée d’un axe en détail.
+class AxisDetail(BaseModel):
+    note: int = Field(default=50, ge=0, le=100)
+    justification: str = ""
+    exemple: str = ""
+    effet: str = ""
+    citation: str = ""
+    couleur: str = "⚪"
+
+
+# Requête envoyée par le frontend
+class AnalyzeRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+# Réponse complète validée envoyée au frontend
+class AnalyzeResponse(BaseModel):
+    score_global: int
+    couleur_global: str
+    resume: str
+    axes: Axes
+
+    justesse: int | None = None
+    completude: int | None = None
+    ton: int | None = None
+    sophismes: int | None = None
+
+    densite_faits: int = 0
+    type_texte: str = ""
+    message_global: dict = {}
+
+    recherches_effectuees: list = []
+    faits_web: dict = {}
+    diffs: dict = {}
+    web_context: dict = {}
+    commentaire_web: str = ""
+    commentaire: str = ""
+
+    confiance_analyse: int = 70
+    explication_confiance: str = ""
+
+
+# ------------ TIMEOUT HANDLER ------------
 def _timeout_handler(signum, frame):
-    raise TimeoutError("Analyse trop longue (timeout Render).")
+    raise TimeoutError("Analyse trop longue (timeout Render/Replit).")
+
 signal.signal(signal.SIGALRM, _timeout_handler)
 
-# ======================================================
-# Helpers
-# ======================================================
+
+# ------------ HELPER COULEUR ------------
 def color_for(score: int) -> str:
     if score is None: return "⚪"
     if score >= 70: return "🟢"
     if score >= 40: return "🟡"
     return "🔴"
 
+
+
+
 # ======================================================
-# 🌐 Recherche Google CSE (Programmable Search API)
+# 🔵 BLOC 2/6 — RECHERCHE WEB + OUTILS D’ANALYSE
 # ======================================================
+# Ici :
+#   - on définit les sites autorisés
+#   - on interroge Google CSE en parallèle
+#   - on formate le commentaire web
+#   - on crée les briques IA : résumé, message global,
+#     consolidation web, comparaison, évaluation, synthèse.
+# ======================================================
+
+# ------------------------------------------------------
+# 2.1 — SITES AUTORISÉS POUR LA RECHERCHE WEB
+# ------------------------------------------------------
 ALLOWED_SITES = [
     "reuters.com", "apnews.com", "bbc.com",
     "lemonde.fr", "francetvinfo.fr",
     "lefigaro.fr", "liberation.fr", "leparisien.fr"
 ]
 
+
+# ------------------------------------------------------
+# 2.2 — RECHERCHE WEB (GOOGLE CSE)
+# ------------------------------------------------------
 def search_web_results(queries, per_query=5, pause=0.5):
-    """Recherche Google CSE (Programmable Search API) sur plusieurs entités ou requêtes."""
+    """
+    Recherche Google Programmable Search (CSE) sur plusieurs requêtes.
+
+    Entrée :
+      - queries : liste de chaînes, ex ["Macron actualité", "Union européenne"]
+    Sortie :
+      - liste de blocs :
+        [
+          {
+            "entité": "Macron actualité",
+            "sources": [
+              {"titre": "...", "snippet": "...", "url": "..."},
+              ...
+            ]
+          },
+          ...
+        ]
+    """
+
     api_key = os.getenv("GOOGLE_CSE_API_KEY")
     cx = os.getenv("GOOGLE_CSE_CX")
+
     if not api_key or not cx:
         print("⚠️ GOOGLE_CSE_API_KEY ou GOOGLE_CSE_CX manquant — recherche désactivée.")
         return []
 
-    all_hits = []
-    seen = set()
-    for q in queries:
+    all_hits = []      # Tous les résultats agrégés
+    seen = set()       # URLs déjà vues (pour éviter les doublons)
+    seen_lock = Lock() # Verrou pour protéger `seen` dans les threads
+
+    # Sous-fonction exécutée pour une requête donnée
+    def fetch(q):
+        # Filtre sur la liste de sites autorisés
         site_filter = " OR ".join([f"site:{s}" for s in ALLOWED_SITES])
         full_q = f"{q} ({site_filter})"
+
         url = "https://www.googleapis.com/customsearch/v1"
         params = {
             "key": api_key,
@@ -71,210 +228,286 @@ def search_web_results(queries, per_query=5, pause=0.5):
             "num": per_query,
             "hl": "fr",
             "lr": "lang_fr",
-            "safe": "off"
+            "safe": "off",
         }
+
         try:
-            r = requests.get(url, params=params, timeout=10)
+            r = requests.get(url, params=params, timeout=8)
             if r.status_code != 200:
-                print("⚠️ Erreur Google CSE:", r.status_code, r.text[:200])
-                continue
+                return q, []
+
             data = r.json()
             results = []
-            for item in data.get("items", []) or []:
+
+            for item in (data.get("items", []) or []):
                 link = item.get("link")
-                if link and link not in seen:
+                if not link:
+                    continue
+
+                # Déduplication multi-threads
+                with seen_lock:
+                    if link in seen:
+                        continue
                     seen.add(link)
-                    results.append({
-                        "titre": item.get("title"),
-                        "snippet": item.get("snippet"),
-                        "url": link
-                    })
+
+                results.append({
+                    "titre": item.get("title"),
+                    "snippet": item.get("snippet"),
+                    "url": link
+                })
+
+            return q, results
+
+        except Exception as e:
+            print(f"⚠️ Erreur recherche Google pour '{q}':", e)
+            return q, []
+
+    # Lancement en parallèle (threads)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(fetch, q) for q in queries]
+
+        for fut in as_completed(futures):
+            q, results = fut.result()
             if results:
                 all_hits.append({"entité": q, "sources": results})
-            time.sleep(pause)
-        except Exception as e:
-            print("⚠️ Erreur recherche Google:", e)
-            continue
+
     return all_hits
 
 
+# ------------------------------------------------------
+# 2.3 — COMMENTAIRE WEB LISIBLE À PARTIR DE web_info
+# ------------------------------------------------------
+def formate_commentaires_web(web_info: dict) -> str:
+    """
+    Crée un commentaire journalistique à partir :
+      - des faits manquants
+      - des contradictions
+      - des divergences de cadrage
 
+    Ce texte est destiné à être affiché dans une "boîte contexte"
+    à côté de l’analyse principale.
+    """
 
-
-
-
-
-
-# ======================================================
-# 🧩 Commentaire web
-# ======================================================
-
-def formate_commentaires_web(web_info):
-    """Crée un commentaire journalistique à partir des faits manquants, contradictions et divergences."""
     commentaires = []
 
-    # Contradictions : ton “fact-check” nuancé
+    # 1️⃣ Contradictions : ton “fact-check” nuancé
     for c in web_info.get("contradictions", []) or []:
         if isinstance(c, dict):
             commentaires.append(
-                f"Selon {c.get('source', 'une source')}, {c.get('correction_ou_nuance', '').strip()} "
-                f"ce qui nuance l’affirmation du texte ({c.get('affirmation_du_texte', '').strip()})."
+                f"Selon {c.get('source', 'une source')}, "
+                f"{(c.get('correction_ou_nuance') or '').strip()} "
+                f"ce qui nuance l’affirmation du texte "
+                f"({(c.get('affirmation_du_texte') or '').strip()})."
             )
         elif isinstance(c, str):
             commentaires.append(c.strip())
 
-    # Faits manquants : ton “analyse critique”
+    # 2️⃣ Faits manquants : ton “analyse critique”
     for f in web_info.get("faits_manquants", []) or []:
         if isinstance(f, dict):
             commentaires.append(
-                f"Le texte n’évoque pas {f.get('description', '').strip()} "
+                f"Le texte n’évoque pas {(f.get('description') or '').strip()} "
                 f"(mentionné par {f.get('source', 'une autre source')}). "
-                f"{f.get('explication', '').strip()}"
+                f"{(f.get('explication') or '').strip()}"
             )
 
-    # Divergences de cadrage : ton “analyse narrative”
+    # 3️⃣ Divergences de cadrage : ton “analyse narrative”
     for d in web_info.get("divergences_de_cadrage", []) or []:
         if isinstance(d, dict):
             commentaires.append(
-                f"Le cadrage diffère : {d.get('resume', '').strip()} "
-                f"{d.get('impact', '').strip()}"
+                f"Le cadrage diffère : {(d.get('resume') or '').strip()} "
+                f"{(d.get('impact') or '').strip()}"
             )
 
-    # Synthèse finale (courte)
+    # 4️⃣ Synthèse finale courte si disponible
     synth = web_info.get("synthese", "")
     if synth:
-        commentaires.append(synth.strip())
+        commentaires.append((synth or "").strip())
 
     return " ".join(commentaires[:5]) or "Aucun écart majeur entre le texte et les sources consultées."
 
+
 # ======================================================
-# 🧩 PIPELINE EXPÉRIMENTAL — version structurée et robuste
+# 2.4 — BRIQUES IA : RÉSUMÉ, MESSAGE GLOBAL, WEB FACTS
 # ======================================================
 
-def extract_global_message(client, text):
-    """Étape 0 — Analyse le message global et l’impression que retient un lecteur moyen."""
-    prompt = f"""
-    Lis ce texte comme le ferait un lecteur moyen (non expert).
-    Décris :
-    1️⃣ Ce que le lecteur retient (message global implicite ou explicite)
-    2️⃣ Le ton général (neutre, élogieux, alarmiste, ironique, critique…)
-    3️⃣ L’intention perçue (informer, convaincre, valoriser, critiquer, désamorcer, dramatiser…)
-    4️⃣ Le niveau de confiance perçu (fort, moyen, faible)
-    5️⃣ L’impression émotionnelle laissée (apaisante, persuasive, tendue…)
-
-    Réponds uniquement en JSON :
-    {{
-      "message_global": "<ce qu’un lecteur retient>",
-      "ton_general": "<neutre|positif|critique|alarmiste|ironique|élogieux>",
-      "intention_perçue": "<informer|convaincre|valoriser|critiquer|désamorcer|dramatiser>",
-      "niveau_de_confiance": "<fort|moyen|faible>",
-      "resume_emotionnel": "<description brève>"
-    }}
-
-    Texte :
-    {text[:4000]}
+# -------------------------
+# 4.1 — Résumé + faits/opinions
+# -------------------------
+def summarize_text(client: OpenAI, text: str) -> dict:
     """
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Tu es un analyste cognitif spécialisé dans la réception médiatique. Tu décris ce que le lecteur moyen retient d’un texte."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.35
-        )
-        raw = resp.choices[0].message.content.strip()
-        m = re.search(r"\{.*\}", raw, re.DOTALL)
-        return json.loads(m.group(0)) if m else {}
-    except Exception as e:
-        print("⚠️ extract_global_message error:", e)
-        return {}
+    Étape 1 :
+      - Résume le texte
+      - Liste les faits (avec extraits)
+      - Liste les opinions
+    """
 
-
-def summarize_text(client, text):
-    """Étape 1 — Résume le texte et sépare faits / opinions avec ancrage (citations courtes)."""
     prompt = f"""
     Résume le texte suivant de manière neutre, puis liste :
-    - Les faits (affirmations vérifiables),
+    - Les faits (affirmations vérifiables)
     - Les opinions (jugements, interprétations).
 
-    Pour chaque fait, joins un court extrait du texte (≤15 mots) pour ancrer la preuve.
+    Pour chaque fait, fournis un extrait (≤15 mots) prouvant d’où tu le tires.
 
-    Réponds **uniquement** en JSON :
+    Réponds UNIQUEMENT en JSON :
     {{
-      "resume": "<résumé général>",
-      "faits": [{{"texte": "<fait>", "extrait_article": "<citation courte>"}}],
-      "opinions": ["<opinion>", ...]
+      "resume": "...",
+      "faits": [{{"texte": "...", "extrait_article": "..."}}],
+      "opinions": ["...", "..."]
     }}
 
     Texte :
     {text[:4000]}
     """
+
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un journaliste neutre. Sépare faits et opinions avec extraits précis."},
+                {
+                    "role": "system",
+                    "content": "Tu es un journaliste neutre. Sépare faits/opinions avec extraits précis."
+                },
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2
+            temperature=0.2,
         )
+
         raw = resp.choices[0].message.content.strip()
         match = re.search(r"\{.*\}", raw, re.DOTALL)
-        return json.loads(match.group(0)) if match else {"resume": "", "faits": [], "opinions": []}
+        return json.loads(match.group(0)) if match else {
+            "resume": "",
+            "faits": [],
+            "opinions": []
+        }
+
     except Exception as e:
         print("⚠️ summarize_text error:", e)
         return {"resume": "", "faits": [], "opinions": []}
 
 
-def consolidate_web_facts(client, web_hits):
-    """Étape 2 — Transforme les résultats web en faits vérifiables (avec extrait source)."""
-    prompt = f"""
-    À partir de ces extraits web, liste uniquement les faits vérifiables et neutres (événements, chiffres, décisions, citations importantes).
-    Pour chaque fait, donne la source et un court extrait (≤15 mots).
+# -------------------------
+# 4.2 — Message global perçu
+# -------------------------
+def extract_global_message(client: OpenAI, text: str) -> dict:
+    """
+    Étape 0 :
+      - message global retenu
+      - ton
+      - intention perçue
+      - niveau de confiance
+      - impression émotionnelle
+    """
 
-    Réponds en JSON :
+    prompt = f"""
+    Lis ce texte comme un lecteur moyen.
+    Décris :
+    1) Message global retenu
+    2) Ton général
+    3) Intention perçue
+    4) Niveau de confiance
+    5) Impression émotionnelle
+
+    Réponds UNIQUEMENT en JSON :
     {{
-      "faits_web": [{{"fait": "...", "source": "...", "url": "...", "extrait_source": "..."}}]
+      "message_global": "...",
+      "ton_general": "...",
+      "intention_perçue": "...",
+      "niveau_de_confiance": "...",
+      "resume_emotionnel": "..."
+    }}
+
+    Texte :
+    {text[:4000]}
+    """
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Tu décris ce que retient un lecteur moyen."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.35,
+        )
+        raw = resp.choices[0].message.content.strip()
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        return json.loads(m.group(0)) if m else {}
+
+    except Exception as e:
+        print("⚠️ extract_global_message error:", e)
+        return {}
+
+
+# -------------------------
+# 4.3 — Faits web consolidés
+# -------------------------
+def consolidate_web_facts(client: OpenAI, web_hits: list) -> dict:
+    """
+    Étape 2 :
+      - Convertit les résultats web bruts → liste de faits sourcés.
+    """
+
+    prompt = f"""
+    Convertis ces extraits web en faits vérifiables et neutres.
+    Pour chaque fait : indique la source, l’URL et un extrait court.
+
+    Réponds UNIQUEMENT en JSON :
+    {{
+      "faits_web": [
+        {{"fait": "...", "source": "...", "url": "...", "extrait_source": "..."}}
+      ]
     }}
 
     Extraits web :
     {json.dumps(web_hits, ensure_ascii=False, indent=2)}
     """
+
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un fact-checker. Tu identifies uniquement les faits neutres et sourcés."},
+                {"role": "system", "content": "Tu identifies des faits web neutres et sourcés."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0
+            temperature=0,
         )
+
         raw = resp.choices[0].message.content.strip()
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         return json.loads(match.group(0)) if match else {"faits_web": []}
+
     except Exception as e:
         print("⚠️ consolidate_web_facts error:", e)
         return {"faits_web": []}
 
 
-def compare_text_with_web(client, summary, web_facts):
-    """Étape 3 — Compare le texte et les faits web : omissions, contradictions, cadrages."""
+# -------------------------
+# 4.4 — Comparaison texte vs web
+# -------------------------
+def compare_text_with_web(client: OpenAI, summary: dict, web_facts: dict) -> dict:
+    """
+    Étape 3 :
+      - Faits manquants
+      - Contradictions
+      - Divergences de cadrage
+    """
+
     prompt = f"""
-    Compare les faits du texte avec ceux des sources web.
+    Compare les faits du texte et les faits web.
     Identifie :
-    - les faits manquants (éléments absents du texte mais confirmés ailleurs),
-    - les contradictions (texte vs sources),
-    - les divergences de cadrage (différences d’angle narratif).
+      - faits manquants
+      - contradictions
+      - divergences de cadrage
 
-    Pour chaque entrée, donne un extrait du texte et un extrait de source pour appuyer l’analyse.
+    Pour chaque cas, donne un extrait du texte + un extrait source.
 
-    Réponds uniquement en JSON :
+    Réponds UNIQUEMENT en JSON :
     {{
-      "faits_manquants": [{{"manque": "...", "pourquoi_cela_compte": "...", "source": "...", "url": "...", "extrait_source": "..."}}],
-      "contradictions": [{{"affirmation_du_texte": "...", "contrepoint": "...", "source": "...", "url": "...", "extrait_source": "..."}}],
-      "divergences_de_cadrage": [{{"resume": "...", "impact": "..."}}],
-      "impact": "<faible|moyen|fort>"
+      "faits_manquants": [...],
+      "contradictions": [...],
+      "divergences_de_cadrage": [...],
+      "impact": "faible|moyen|fort"
     }}
 
     FAITS DU TEXTE :
@@ -283,197 +516,67 @@ def compare_text_with_web(client, summary, web_facts):
     FAITS DU WEB :
     {json.dumps(web_facts, ensure_ascii=False, indent=2)}
     """
+
     try:
         resp = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un analyste comparatif entre texte et sources web."},
+                {"role": "system", "content": "Tu compares texte et sources web."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3
+            temperature=0.3,
         )
-        raw = resp.choices[0].message.content.strip()
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        return json.loads(match.group(0)) if match else {"faits_manquants": [], "contradictions": [], "divergences_de_cadrage": [], "impact": "faible"}
-    except Exception as e:
-        print("⚠️ compare_text_with_web error:", e)
-        return {"faits_manquants": [], "contradictions": [], "divergences_de_cadrage": [], "impact": "faible"}
 
-
-def evaluate_text(client, summary, web_facts, diffs, global_msg=None):
-    """
-    Étape 4 — Évalue le texte sur 4 axes avec pédagogie.
-    Chaque sous-score est concret, illustré et explique l’effet sur le lecteur.
-    """
-    msg_context = (global_msg or {}).get("message_global", "")
-
-    rubric = {
-    "justesse": {
-        "0":   "Affirmations fausses ou trompeuses.",
-        "25":  "Plusieurs imprécisions notables.",
-        "50":  "Faits globalement exacts mais simplifiés.",
-        "75":  "Faits exacts, rares imprécisions mineures.",
-        "100": "Faits parfaitement justes et sourcés."
-    },
-    "completude": {
-        "0":   "Omissions critiques changeant complètement le sens.",
-        "25":  "Omissions majeures qui biaisent fortement la compréhension.",
-        "50":  "Certains points manquent et orientent partiellement la lecture.",
-        "75":  "Informations bien couvertes, quelques absences secondaires.",
-        "100": "Texte très complet, équilibre des points de vue."
-    },
-    "ton": {
-        "0":   "Langage clairement orienté ou affectif.",
-        "25":  "Vocabulaire influençant la perception du lecteur.",
-        "50":  "Ton neutre mais légères orientations lexicales.",
-        "75":  "Ton factuel et mesuré.",
-        "100": "Neutralité exemplaire, vocabulaire sobre."
-    },
-    "sophismes": {
-        "0":   "Raisonnement illogique ou manipulateur.",
-        "25":  "Causalités fausses ou raccourcis notables.",
-        "50":  "Quelques simplifications qui altèrent la rigueur.",
-        "75":  "Raisonnement globalement solide.",
-        "100": "Logique rigoureuse, distinctions claires entre faits et interprétations."
-    }
-    }
-
-    prompt = f"""
-    Tu es **De Facto**, un journaliste-analyste pédagogue.
-    Pour chaque axe, tu dois écrire comme si tu expliquais ton évaluation à un lecteur non expert.
-    Chaque sous-note doit répondre à trois questions :
-      1️⃣ Qu’est-ce que le texte dit ou montre ? (observation concrète)
-      2️⃣ Peux-tu donner un exemple précis du texte ?
-      3️⃣ Qu’est-ce que ça fait au lecteur ? (effet sur sa compréhension ou perception)
-
-    ⚙️ Structure attendue pour chaque axe :
-    {{
-      "note": <0|25|50|75|100>,
-      "anchor_matched": <0|25|50|75|100>,
-      "severity_for_reader": "<faible|moyenne|élevée>",
-      "justification": "Rédaction pédagogique (3-5 phrases) expliquant le constat + exemple + effet sur le lecteur.",
-      "citation": "Extrait court illustratif."
-    }}
-
-    ⚖️ Barème utilisé :
-    {json.dumps(rubric, ensure_ascii=False, indent=2)}
-
-    Contexte perçu par le lecteur : "{msg_context}"
-
-    Matières disponibles :
-    - Résumé et faits du texte : {json.dumps(summary, ensure_ascii=False, indent=2)}
-    - Faits web : {json.dumps(web_facts, ensure_ascii=False, indent=2)}
-    - Écarts détectés : {json.dumps(diffs, ensure_ascii=False, indent=2)}
-
-    ⚠️ Règles :
-    - Sois concret, clair et explicatif.
-    - Ne dis pas “le texte est biaisé” mais “le texte donne l’impression que…”.
-    - Donne toujours un exemple de formulation ou d’extrait.
-    - Explique à chaque fois pourquoi cela compte pour le lecteur.
-    - Évite le jargon et les phrases vagues (“le contexte est tendu” sans exemple).
-    - Réponds uniquement en JSON, avec la structure :
-      {{
-    "axes": {{
-      "fond": {{
-        "justesse": {{...}},
-        "completude": {{...}}
-      }},
-      "forme": {{
-        "ton": {{...}},
-        "sophismes": {{...}}
-      }}
-    }}
-      }}
-    """
-
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                "role": "system",
-                "content": (
-                    "Tu es un journaliste-analyste pédagogique, clair et concret. "
-                    "Tu illustres chaque constat avec un exemple et expliques son impact sur le lecteur."
-                )
-            },
-                {"role": "user", "content": prompt}
-        ],
-            temperature=0.25
-        )
         raw = resp.choices[0].message.content.strip()
         m = re.search(r"\{.*\}", raw, re.DOTALL)
-        parsed = json.loads(m.group(0)) if m else {"axes": {}}
-        return parsed
+        return json.loads(m.group(0)) if m else {
+            "faits_manquants": [],
+            "contradictions": [],
+            "divergences_de_cadrage": [],
+            "impact": "faible"
+        }
+
     except Exception as e:
-        print("⚠️ evaluate_text error:", e)
-        return {"axes": {}}
+        print("⚠️ compare_text_with_web error:", e)
+        return {
+            "faits_manquants": [],
+            "contradictions": [],
+            "divergences_de_cadrage": [],
+            "impact": "faible"
+        }
 
 
+# ======================================================
+# 2.5 — SCORE GLOBAL + RECHERCHE CONTEXTUELLE
+# ======================================================
 
-def synthesize_from_axes(client, evaluation):
+# -------------------------
+# Score global (0–100)
+# -------------------------
+def compute_global_score(evals_axes: dict, diffs_impact: str, densite_faits: int) -> int:
     """
-    Synthèse explicative et pédagogique (3 blocs). N'indique jamais de score.
-    """
-    prompt = f"""
-    Tu es un journaliste pédagogue. Explique au lecteur non expert, clairement et avec exemples,
-    ce qu’il retient du texte, ce qui manque, et l’effet global sur sa compréhension.
-    
-    ✍️ Structure OBLIGATOIRE (3 blocs, 2-4 phrases chacun) :
-    1) Ce que le texte dit et fait croire (message retenu + ton + comment c'est amené).
-       Exemple: « L’article présente X comme un choix 'technique' et neutre; le lecteur retient l’idée d’efficacité. »
-    
-    2) Ce qui manque / est simplifié, et pourquoi ça compte (exemples concrets + effet sur ce que croit le lecteur).
-       Exemple: « Le texte ne mentionne pas [critique/contre-exemple]. Sans cela, le lecteur pense à un consensus. »
-    
-    3) Effet global sur la compréhension (perception induite et limites).
-       Exemple: « En insistant sur [élément] et en évitant [contrepoint], l’article donne une impression de stabilité, mais gomme les enjeux politiques. »
-    
-    ⚠️ Interdits:
-    - NE JAMAIS mentionner de chiffres de note ou de score.
-    - Pas de jargon. Pas d’abstractions vagues (« contexte tendu ») sans exemple.
-    
-    Matière:
-    {json.dumps(evaluation, ensure_ascii=False, indent=2)}
-    """
+    Calcule un score global final (0–100) selon 4 pondérations :
+      - Justesse       (40%)
+      - Complétude     (30%)
+      - Ton            (15%)
+      - Sophismes      (15%)
 
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "Tu écris comme un journaliste-explicateur: clair, concret, avec exemples. Jamais de score."},
-                {"role": "user", "content": prompt}
-        ],
-            temperature=0.35
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        print("⚠️ synthesize_from_axes error:", e)
-        return "Synthèse non disponible."
-
-
-
-def compute_global_score(evals_axes, diffs_impact: str, densite_faits: int) -> int:
-    """
-    Calcule un score global déterministe à partir des notes par axe.
-    Pondérations: Justesse 0.4, Complétude 0.3, Ton 0.15, Sophismes 0.15.
-    Ajustements:
+    Ajustements :
       - Impact 'fort' : -10 si Justesse < 60 ou Complétude < 60
       - Impact 'moyen': -5  si Justesse < 60 ou Complétude < 60
-      - Densité factuelle: +5 si >60 ; -5 si <30
-    Renvoie un entier 0–100.
+      - Densité factuelle : +5 si >60%, -5 si <30%
     """
+
     try:
         j = int(evals_axes["fond"]["justesse"]["note"])
         c = int(evals_axes["fond"]["completude"]["note"])
         t = int(evals_axes["forme"]["ton"]["note"])
         s = int(evals_axes["forme"]["sophismes"]["note"])
     except Exception:
-        return 50  # fallback sûr
+        return 50  # Sécurité en cas de JSON partiel
 
-    base = (0.4 * j) + (0.3 * c) + (0.15 * t) + (0.15 * s)
+    base = 0.4 * j + 0.3 * c + 0.15 * t + 0.15 * s
 
-    # Impact du manque sur compréhension
     impact = (diffs_impact or "faible").lower().strip()
     if (j < 60 or c < 60):
         if impact == "fort":
@@ -481,7 +584,6 @@ def compute_global_score(evals_axes, diffs_impact: str, densite_faits: int) -> i
         elif impact == "moyen":
             base -= 5
 
-    # Densité factuelle (ton ancien réglage, mais ici centralisé)
     if densite_faits > 60:
         base += 5
     elif densite_faits < 30:
@@ -490,367 +592,594 @@ def compute_global_score(evals_axes, diffs_impact: str, densite_faits: int) -> i
     return max(0, min(100, round(base)))
 
 
+# -------------------------
+# Recherche web contextuelle (NER → web → synthèse)
+# -------------------------
+def web_context_research(text: str) -> dict:
+    """
+    Étape d’enrichissement factuel :
+      1) extraction d’entités (NER)
+      2) recherche web (Google CSE)
+      3) synthèse journalistique IA
+    """
+
+    try:
+        # 1️⃣ Entités NER
+        ent_prompt = f"""
+        Extrait les principales entités (personnes, lieux, organisations, événements)
+        du texte suivant :
+        {text[:2000]}
+
+        Réponds UNIQUEMENT en JSON : ["entité1", "entité2", ...]
+        """
+
+        ent_resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Tu es un extracteur d'entités journalistiques (NER)."},
+                {"role": "user", "content": ent_prompt}
+            ],
+            temperature=0,
+        )
+
+        raw_entities = ent_resp.choices[0].message.content.strip()
+        m = re.search(r"\[.*\]", raw_entities, re.DOTALL)
+        entities = json.loads(m.group(0)) if m else []
+
+        entities = [
+            e for e in entities
+            if isinstance(e, str) and e.strip() and len(e.strip()) >= 2
+        ]
+
+        if not entities:
+            return {
+                "recherches_effectuees": [],
+                "faits_manquants": [],
+                "contradictions": [],
+                "divergences_de_cadrage": [],
+                "impact": "faible",
+                "fiabilite_sources": "Aucune entité détectée.",
+                "synthese": "Impossible d’enrichir : aucune entité détectée."
+            }
+
+        # 2️⃣ Recherche web
+        queries = [f"{ent} actualité" for ent in entities[:3]]
+        print("🌍 Recherche web sur :", entities)
+        recherches = search_web_results(queries, per_query=4)
+
+        # 3️⃣ Synthèse IA
+        synth_prompt = f"""
+        Compare le texte suivant avec les sources ci-dessous.
+        Identifie :
+        - faits manquants
+        - contradictions
+        - divergences de cadrage
+
+        Réponds UNIQUEMENT en JSON :
+        {{
+          "faits_manquants": [...],
+          "contradictions": [...],
+          "divergences_de_cadrage": [...],
+          "impact": "faible|moyen|fort",
+          "fiabilite_sources": "...",
+          "synthese": "..."
+        }}
+
+        TEXTE :
+        {text}
+
+        SOURCES :
+        {json.dumps(recherches, ensure_ascii=False, indent=2)}
+        """
+
+        synth_resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Tu es un fact-checker journalistique neutre."},
+                {"role": "user", "content": synth_prompt}
+            ],
+            temperature=0.3,
+        )
+
+        content = synth_resp.choices[0].message.content.strip()
+        m = re.search(r"\{.*\}", content, re.DOTALL)
+        result = json.loads(m.group(0)) if m else {}
+
+        result["recherches_effectuees"] = recherches
+        return result
+
+    except Exception as e:
+        print("⚠️ web_context_research failed:", e)
+        return {
+            "recherches_effectuees": [],
+            "faits_manquants": [],
+            "contradictions": [],
+            "divergences_de_cadrage": [],
+            "impact": "faible",
+            "fiabilite_sources": "Erreur interne durant la recherche.",
+            "synthese": "Recherche contextuelle indisponible."
+        }
+
+
 # ======================================================
-# 🧩 Route principale : analyse
+# 2.6 — SYNTHÈSE NARRATIVE & ÉVALUATION PAR AXES
 # ======================================================
+
+def evaluate_text(client: OpenAI, summary: dict, web_facts: dict, diffs: dict, global_msg: Optional[dict] = None) -> dict:
+    """
+    Étape 4 :
+      - Note sur 4 axes :
+          justesse, complétude, ton, sophismes
+      - Renvoie un JSON de la forme :
+        { "axes": { "fond": {...}, "forme": {...} } }
+    """
+
+    msg_context = (global_msg or {}).get("message_global", "")
+
+    prompt = f"""
+    Tu évalues le texte sur 4 axes : justesse, complétude, ton, rigueur argumentative.
+
+    Structure OBLIGATOIRE :
+    {{
+      "axes": {{
+        "fond": {{
+          "justesse": {{
+            "note": <0-100>,
+            "justification": "...",
+            "citation": "...",
+            "exemple": "...",
+            "effet": "..."
+          }},
+          "completude": {{
+            "note": <0-100>,
+            "justification": "...",
+            "citation": "...",
+            "exemple": "...",
+            "effet": "..."
+          }}
+        }},
+        "forme": {{
+          "ton": {{
+            "note": <0-100>,
+            "justification": "...",
+            "citation": "...",
+            "exemple": "...",
+            "effet": "..."
+          }},
+          "sophismes": {{
+            "note": <0-100>,
+            "justification": "...",
+            "citation": "...",
+            "exemple": "...",
+            "effet": "..."
+          }}
+        }}
+      }}
+    }}
+
+    Règles :
+      - Donne un exemple précis pour chaque critère.
+      - Explique l’effet sur le lecteur.
+      - Réponds UNIQUEMENT avec du JSON.
+
+    Contexte perçu : "{msg_context}"
+
+    Résumé :
+    {json.dumps(summary, ensure_ascii=False, indent=2)}
+
+    Faits web :
+    {json.dumps(web_facts, ensure_ascii=False, indent=2)}
+
+    Différences texte/web :
+    {json.dumps(diffs, ensure_ascii=False, indent=2)}
+    """
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Analyste pédagogique, concret, avec exemples."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.25,
+        )
+
+        raw = resp.choices[0].message.content.strip()
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        parsed = json.loads(m.group(0)) if m else {"axes": {}}
+        return parsed
+
+    except Exception as e:
+        print("⚠️ evaluate_text error:", e)
+        return {"axes": {}}
+
+
+def synthesize_from_axes(client: OpenAI, evaluation: dict) -> str:
+    """
+    Étape 5 :
+      - 3 paragraphes :
+          1) Ce que le texte fait croire
+          2) Ce qui manque / simplifie
+          3) Effet global sur la compréhension
+      - Jamais de score dans la synthèse.
+    """
+
+    prompt = f"""
+    Écris une synthèse en 3 blocs :
+    1) Ce que le texte fait croire (message + ton + présentation)
+    2) Ce qui manque ou simplifie (exemples + effet lecteur)
+    3) Effet global sur la compréhension
+
+    Interdits :
+      - aucune note ou score
+      - pas de jargon
+
+    Matière :
+    {json.dumps(evaluation, ensure_ascii=False, indent=2)}
+    """
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Tu es un journaliste explicateur, clair et concret."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.35,
+        )
+
+        return resp.choices[0].message.content.strip()
+
+    except Exception as e:
+        print("⚠️ synthesize_from_axes error:", e)
+        return "Synthèse non disponible."
+
+
+
+
+# ======================================================
+# 🔵 BLOC 3/6 — ROUTE PRINCIPALE /analyze
+# ======================================================
+# Pipeline complet :
+#   1) Préparation du texte (URL, tronquage)
+#   2) Pré-analyse (faits/opinions/autres)
+#   3) Lancement parallèle :
+#        - extract_global_message
+#        - summarize_text
+#        - web_context_research
+#   4) Consolidation :
+#        - faits web
+#        - comparaison texte ↔ web
+#   5) Évaluation (4 axes)
+#   6) Score global + couleur
+#   7) Synthèse narrative
+#   8) Construction de la réponse pour le frontend
+# ======================================================
+
+
 @app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
+    # CORS preflight
     if request.method == "OPTIONS":
         return ("", 204)
 
+    # --------------------------------------------------
+    # 3.1 — RÉCUPÉRATION & VALIDATION DE L’ENTRÉE
+    # --------------------------------------------------
     payload = request.get_json(silent=True) or {}
-    text = (payload.get("text") or "").strip()
+
+    try:
+        parsed = AnalyzeRequest(**payload)
+    except ValidationError:
+        return jsonify({"error": "Aucun texte reçu"}), 400
+
+    text = (parsed.text or "").strip()
     if not text:
         return jsonify({"error": "Aucun texte reçu"}), 400
 
-    # 🔗 Extraction d’URL via Trafilatura (si activée)
+    # --------------------------------------------------
+    # 3.2 — EXTRACTION D’URL VIA TRAFILATURA (si activée)
+    # --------------------------------------------------
     if ENABLE_URL_EXTRACT and re.match(r"^https?://", text):
         try:
             import trafilatura
-            fetched = trafilatura.extract(trafilatura.fetch_url(text)) or ""
+
+            downloaded = trafilatura.fetch_url(text)
+            fetched = trafilatura.extract(downloaded) or ""
             if len(fetched.strip()) >= 300:
                 text = fetched.strip()[:8000]
                 print(f"✅ Trafilatura OK (len={len(text)})")
             else:
-                print("⚠️ Extraction trop courte, texte brut conservé.")
+                print("⚠️ Extraction trop courte → texte brut conservé.")
         except Exception as e:
             print("⚠️ Trafilatura indisponible :", e)
 
-    # Tronquage protecteur
+    # --------------------------------------------------
+    # 3.3 — TRONQUAGE DE SÉCURITÉ (taille max)
+    # --------------------------------------------------
     MAX_LEN = 8000
-    texte_tronque = len(text) > MAX_LEN
-    original_length = len(text)
-    if texte_tronque:
-        text = text[:MAX_LEN] + " [...] (texte tronqué pour analyse)"
+    if len(text) > MAX_LEN:
+        text = text[:MAX_LEN] + " […] (tronqué pour analyse)"
 
-    # ======================================================
-    # 🧩 Étape 1 — Pré-analyse de type de texte (faits/opinions/autres)
-    # ======================================================
+    # --------------------------------------------------
+    # 3.4 — PRÉ-ANALYSE (densité factuelle)
+    # --------------------------------------------------
     try:
         pre_prompt = f"""
         Classe le texte selon 3 catégories :
         - FAITS (affirmations vérifiables)
-        - OPINIONS (jugements ou interprétations)
-        - AUTRES (ironie, satire, poésie, récit, etc.)
+        - OPINIONS (jugements)
+        - AUTRES (récit, humour, etc.)
 
-        Retourne un JSON au format :
+        Réponds uniquement en JSON :
         {{
           "faits": <int>,
           "opinions": <int>,
           "autres": <int>
         }}
+
         Texte :
         {text[:2000]}
         """
+
         pre_resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Tu es un linguiste qui catégorise les phrases d'un texte."},
-                {"role": "user", "content": pre_prompt}
+                {
+                    "role": "system",
+                    "content": "Tu es un linguiste qui classe les phrases.",
+                },
+                {"role": "user", "content": pre_prompt},
             ],
-            temperature=0
+            temperature=0,
         )
-        raw_content = pre_resp.choices[0].message.content.strip()
-        # Parsing JSON robuste avec regex
+        raw = pre_resp.choices[0].message.content.strip()
         try:
-            fact_mix = json.loads(raw_content)
+            fact_mix = json.loads(raw)
         except json.JSONDecodeError:
-            # Tenter d'extraire le JSON du texte
-            m = re.search(r"\{.*\}", raw_content, re.DOTALL)
-            if m:
-                fact_mix = json.loads(m.group(0))
-            else:
-                raise
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            fact_mix = json.loads(m.group(0)) if m else {
+                "faits": 0,
+                "opinions": 0,
+                "autres": 0,
+            }
+
     except Exception as e:
         print("⚠️ Erreur pré-analyse :", e)
         fact_mix = {"faits": 0, "opinions": 0, "autres": 0}
 
     total = sum(fact_mix.values()) or 1
     densite_faits = int((fact_mix["faits"] / total) * 100)
+
     type_texte = (
         "Principalement factuel" if densite_faits > 60 else
         "Opinion ou analyse" if fact_mix["opinions"] > 40 else
         "Autre (narratif, satirique…)"
     )
 
-    # ======================================================
-    # 🌍 Étape intermédiaire : Recherche Web enrichie
-    #    (entités → recherche → faits manquants / contradictions / impact)
-    # ======================================================
-    def web_context_research(text: str):
-        """
-        Étape d'enrichissement factuel :
-        1) Extrait les entités du texte (personnes, lieux, orga, événements)
-        2) Recherche des sources fiables (Reuters, AP, BBC, Le Monde, Franceinfo)
-        3) Synthétise : faits manquants précis + contradictions + impact + fiabilité
-        Retour JSON robuste même en cas d'échec partiel.
-        """
-        try:
-            # 1) Extraction d'entités
-            ent_prompt = f"""
-            Extrait les principales entités nommées (personnes, lieux, organisations, événements, lois, chiffres clés)
-            du texte suivant :
-            {text[:2000]}
-
-            Réponds uniquement en JSON : ["entité1", "entité2", ...]
-            """
-            ent_resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Tu es un extracteur d'entités journalistiques (NER)."},
-                    {"role": "user", "content": ent_prompt}
-                ],
-                temperature=0
-            )
-            raw_entities = ent_resp.choices[0].message.content.strip()
-            try:
-                entities = json.loads(raw_entities)
-            except json.JSONDecodeError:
-                # Tenter d'extraire le JSON array du texte
-                m = re.search(r"\[.*\]", raw_entities, re.DOTALL)
-                if m:
-                    try:
-                        entities = json.loads(m.group(0))
-                    except Exception:
-                        entities = []
-                else:
-                    entities = []
-            if not isinstance(entities, list):
-                entities = []
-            entities = [e for e in entities if isinstance(e, str) and e.strip()]
-            if not entities:
-                return {
-                    "recherches_effectuees": [],
-                    "faits_manquants": [],
-                    "contradictions": [],
-                    "impact": "faible",
-                    "fiabilite_sources": "Aucune source consultable (pas d'entités détectées).",
-                    "synthese": "Aucune entité détectée — enrichissement impossible."
-                }
-
-            # 2) Recherche Web (Google CSE) — requêtes multi-angles
-            queries = []
-            for ent in entities[:5]:
-                queries += [
-                    f"{ent} actualité",
-                    f"{ent} controverse",
-                    f"{ent} critiques",
-                    f"{ent} biographie",
-                    f"{ent} politique"
-                ]
-            
-            print("🌍 Recherche web activée — entités détectées :", entities)
-            recherches = search_web_results(queries, per_query=4)
-            print("✅ Recherche web terminée, résultats trouvés :", len(recherches))
-
-            # 3) Fusion IA : comparer texte vs résultats
-            synth_prompt = f"""
-            Tu es un assistant d'analyse journalistique et de fact-checking avancé.
-            Ta mission est d’évaluer le texte fourni en le confrontant à des sources d’information fiables du web.
-            Tu dois adopter une approche nuancée, capable de détecter :
-            - les faits complémentaires,
-            - les omissions,
-            - les divergences de cadrage,
-            - et les interprétations différentes ou contraires.
-
-            TEXTE À ANALYSER :
-            {text}
-
-            SOURCES WEB :
-            {json.dumps(recherches, ensure_ascii=False, indent=2)}
-
-            Tu répondras en JSON structuré, selon le format suivant :
-
-            {{
-              "faits_manquants": [
-                {{
-                  "description": "Décris un fait, une donnée, un acteur ou un point de vue pertinent non mentionné dans le texte, mais présent dans les sources.",
-                  "source": "<nom du média ou acteur>",
-                  "url": "<lien vers la source>",
-                  "explication": "Explique comment cette omission ou ce complément modifierait la compréhension du texte (ex: change l’équilibre, nuance une affirmation, apporte un contexte contradictoire, etc.)."
-                }}
-              ],
-              "contradictions": [
-                {{
-                  "affirmation_du_texte": "Phrase, idée ou ton du texte à confronter.",
-                  "correction_ou_nuance": "Énonce ce que disent les sources web (faits, citations, chiffres, etc.) qui contredisent ou relativisent l'affirmation.",
-                  "source": "<média ou acteur>",
-                  "url": "<lien>"
-                }}
-              ],
-              "divergences_de_cadrage": [
-                {{
-                  "resume": "Décris un écart d'angle, de ton ou de narration entre le texte et les sources (par ex : l’article met l’accent sur X alors que les sources insistent sur Y).",
-                  "impact": "Explique en quoi ce cadrage différent influence la perception du lecteur."
-                }}
-              ],
-              "impact_global": "<faible|moyen|fort>",
-              "fiabilite_sources": "Décris brièvement la crédibilité, diversité et cohérence des sources trouvées.",
-              "synthese": "Rédige une synthèse fluide (3–6 phrases) qui explique comment le texte se positionne par rapport aux faits établis et aux autres récits du web. Sois analytique, nuancé et journalistique — ni moralisateur ni mécanique."
-            }}
-
-            Règles de style :
-            - Adopte un ton journalistique neutre, comme dans une rubrique de fact-checking du Monde, Reuters ou AFP.
-            - Évite les jugements (“faux”, “mensonger”) sauf si la contradiction est flagrante.
-            - Sois capable d’intégrer plusieurs angles (scientifique, politique, social) selon le sujet.
-            - Si les sources ne permettent pas de confirmer ni d’infirmer, dis-le explicitement.
-            - Ne dupliques pas les extraits ; reformule clairement.
-            """
-
-
-            synth_resp = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "Tu es un fact-checker journalistique expert et neutre."},
-                    {"role": "user", "content": synth_prompt}
-                ],
-                temperature=0.3
-            )
-
-            content = synth_resp.choices[0].message.content.strip()
-            try:
-                web_summary = json.loads(content)
-            except Exception:
-                m = re.search(r"\{.*\}", content, re.DOTALL)
-                web_summary = json.loads(m.group(0)) if m else {
-                    "faits_manquants": [],
-                    "contradictions": [],
-                    "impact": "faible",
-                    "fiabilite_sources": "Réponse non structurée.",
-                    "synthese": "Le modèle n’a pas pu formater correctement la réponse."
-                }
-
-            return web_summary
-
-        except Exception as e:
-            print("⚠️ Web context failed:", e)
-            return {
-                "recherches_effectuees": [],
-                "faits_manquants": [],
-                "contradictions": [],
-                "impact": "faible",
-                "fiabilite_sources": "Recherche contextuelle non disponible.",
-                "synthese": "Recherche contextuelle non disponible."
-            }
-
-    web_info = web_context_research(text) if ENABLE_CONTEXT_BOX else {
-        "recherches_effectuees": [],
-        "faits_manquants": [],
-        "contradictions": [],
-        "impact": "faible",
-        "fiabilite_sources": "Contexte non activé.",
-        "synthese": "Contexte non activé."
-    }
-
-    # ======================================================
-    # 🧠 Étape 3 — Analyse principale complète
-    # ======================================================
-    # ======================================================
-    # 🧠 Étape 3 — Nouveau pipeline structuré (analyse complète)
-    # ======================================================
-
+    # --------------------------------------------------
+    # 3.5 — PIPELINE PRINCIPAL EN PARALLÈLE
+    # --------------------------------------------------
     try:
-        signal.alarm(60)
+        signal.alarm(120)  # sécurité anti-timeout
 
-        # --- Étape 0 : Message global perçu par le lecteur
-        global_msg = extract_global_message(client, text)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            f_msg = executor.submit(extract_global_message, client, text)
+            f_sum = executor.submit(summarize_text, client, text)
+            f_webc = executor.submit(web_context_research, text)
 
-        # --- Étape 1 : Résumé explicatif et extraction d’affirmations vérifiables
-        summary = summarize_text(client, text)
+            global_msg = f_msg.result()
+            summary = f_sum.result()
+            web_info = f_webc.result()
 
-
-        # --- Étape 2 : Recherche Web (sur entités principales)
-        entities = [f["texte"] for f in summary.get("faits", [])[:3]] if summary.get("faits") else []
-        web_hits = search_web_results(entities)
-
-        # --- Étape 3 : Consolidation des faits trouvés
+        # --------------------------------------------------
+        # 3.6 — CONSOLIDATION WEB & COMPARAISON
+        # --------------------------------------------------
+        web_hits = web_info.get("recherches_effectuees", [])
         web_facts = consolidate_web_facts(client, web_hits)
-
-        # --- Étape 4 : Comparaison entre le texte et le web
         diffs = compare_text_with_web(client, summary, web_facts)
 
-        # --- Pondération intelligente de l’impact selon le message perçu
+        # Ajuster l’impact selon le message global perçu
         if global_msg and "message_global" in global_msg:
-            mg = global_msg["message_global"].lower()
-            if "consensus" in mg or "apaisé" in mg or "unanimité" in mg:
-                if len(diffs.get("faits_manquants", [])) > 0:
-                    diffs["impact"] = "fort"
-            elif "controverse" in mg or "division" in mg or "critique" in mg:
+            mg = (global_msg.get("message_global") or "").lower()
+            if any(w in mg for w in ("consensus", "unanimité", "apaisé")) and diffs.get("faits_manquants"):
+                diffs["impact"] = "fort"
+            elif any(w in mg for w in ("controverse", "critique", "division")):
                 diffs["impact"] = "moyen"
 
-        
-        # --- Étape 5 : Évaluation finale (notes sur 4 axes)
-        evals = evaluate_text(client, summary, web_facts, diffs, global_msg)
+        # --------------------------------------------------
+        # 3.7 — ÉVALUATION PAR AXES (justesse, complétude…)
+        # --------------------------------------------------
+        evals_axes_full = evaluate_text(client, summary, web_facts, diffs, global_msg)
+        axes_struct = evals_axes_full.get("axes", {})
 
-        # Calcul du score global séparé et déterministe
+        # Sécurité : structure par défaut si l’IA a raté le format
+        axes_struct.setdefault("fond", {})
+        axes_struct.setdefault("forme", {})
+        fallback = {
+            "note": 50,
+            "justification": "",
+            "exemple": "",
+            "effet": "",
+            "citation": "",
+            "couleur": "⚪"
+        }
+
+
+        axes_struct["fond"].setdefault("justesse", fallback.copy())
+        axes_struct["fond"].setdefault("completude", fallback.copy())
+        axes_struct["forme"].setdefault("ton", fallback.copy())
+        axes_struct["forme"].setdefault("sophismes", fallback.copy())
+
+
+        # --------------------------------------------------
+        # 3.8 — SCORE GLOBAL (avec densité factuelle)
+        # --------------------------------------------------
+        base_score = compute_global_score(
+            axes_struct,
+            diffs.get("impact"),
+            densite_faits,
+        )
+
+        # Lissage selon densité factuelle
+        score_global = base_score
+        if densite_faits > 60:
+            score_global = min(score_global + 5, 100)
+        elif densite_faits < 30:
+            score_global = max(score_global - 5, 0)
+
+        # --------------------------------------------------
+        # 3.9 — COULEURS PAR AXE + PATCH COMPAT FRONTEND
+        # --------------------------------------------------
         try:
-            axes_struct = evals.get("axes", {})
-            final_score = compute_global_score(axes_struct, diffs.get("impact"), densite_faits)
-        except Exception:
-            final_score = 50
+            axes_struct["fond"]["justesse"]["couleur"] = color_for(
+                axes_struct["fond"]["justesse"].get("note")
+            )
+            axes_struct["fond"]["completude"]["couleur"] = color_for(
+                axes_struct["fond"]["completude"].get("note")
+            )
+            axes_struct["forme"]["ton"]["couleur"] = color_for(
+                axes_struct["forme"]["ton"].get("note")
+            )
+            axes_struct["forme"]["sophismes"]["couleur"] = color_for(
+                axes_struct["forme"]["sophismes"].get("note")
+            )
+        except Exception as e:
+            print("⚠️ Impossible d’ajouter les couleurs aux axes :", e)
 
-        # Remplir les champs de sortie normalisés
-        evals["score_global"] = final_score
-        evals["couleur_global"] = color_for(final_score)
+        # Champs à plat pour le radar du frontend (compat)
+        justesse_note = axes_struct["fond"]["justesse"].get("note")
+        completude_note = axes_struct["fond"]["completude"].get("note")
+        ton_note = axes_struct["forme"]["ton"].get("note")
+        sophismes_note = axes_struct["forme"]["sophismes"].get("note")
 
+        # --------------------------------------------------
+        # 3.10 — SYNTHÈSE NARRATIVE (3 paragraphes)
+        # --------------------------------------------------
+        synthèse = synthesize_from_axes(
+            client,
+            {
+                "axes": axes_struct,
+                "score_global": score_global,
+                "densite_faits": densite_faits,
+                "type_texte": type_texte,
+                "message_global": global_msg,
+            },
+        )
 
-        # --- Étape 6 : Synthèse finale à partir des sous-notes
-        evals["resume"] = synthesize_from_axes(client, evals)
+        # --------------------------------------------------
+        # 3.11 — CONSTRUCTION DE LA RÉPONSE (backend → frontend)
+        # --------------------------------------------------
+        response_payload = {
+            # Score global + couleur
+            "score_global": score_global,
+            "couleur_global": color_for(score_global),
 
-        # --- Ajouts pour compatibilité avec l’ancien front
-        evals["message_global"] = global_msg
-        evals["recherches_effectuees"] = web_hits
-        evals["faits_web"] = web_facts
-        evals["diffs"] = diffs
-        evals["type_texte"] = type_texte
-        evals["densite_faits"] = densite_faits
+            # Synthèse
+            "resume": synthèse,
+            "commentaire": synthèse,  # compat ancien frontend
 
-        # --- Pondération douce du score global selon densité factuelle
-        if "score_global" in evals:
-            sg = int(evals["score_global"])
-            if densite_faits > 60:
-                sg = min(sg + 5, 100)
-            elif densite_faits < 30:
-                sg = max(sg - 5, 0)
-            evals["score_global"] = sg
-            evals["couleur_global"] = color_for(sg)
+            # Axes détaillés
+            "axes": axes_struct,
+            "justesse": justesse_note,
+            "completude": completude_note,
+            "ton": ton_note,
+            "sophismes": sophismes_note,
 
-        # --- Ajout du log local (comme avant)
+            # Métadonnées de texte
+            "densite_faits": densite_faits,
+            "type_texte": type_texte,
+            "message_global": global_msg,
+
+            # Contexte web et commentaire associé
+            "recherches_effectuees": web_hits,
+            "faits_web": web_facts,
+            "diffs": diffs,
+            "web_context": web_info,
+            "commentaire_web": formate_commentaires_web(web_info),
+
+            # Confiance de l’analyse (proxy : score global)
+            "confiance_analyse": score_global,
+            "explication_confiance": "Analyse interne : cohérence moyenne entre les critères.",
+        }
+
+        # --------------------------------------------------
+        # 3.12 — LOGGING LOCAL (logs.jsonl)
+        # --------------------------------------------------
         try:
             log_item = {
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "input_len": len(text),
                 "type_texte": type_texte,
                 "densite_faits": densite_faits,
-                "score_global": evals.get("score_global"),
-                "axes": evals.get("axes", {}),
-                "resume": evals.get("resume"),
-                "commentaire": evals.get("commentaire"),
+                "score_global": score_global,
+                "axes": axes_struct,
+                "resume": synthèse,
             }
             with open("logs.jsonl", "a", encoding="utf-8") as f:
                 f.write(json.dumps(log_item, ensure_ascii=False) + "\n")
         except Exception as e:
             print("ℹ️ Échec écriture logs.jsonl :", e)
 
-        signal.alarm(0)
-        print("✅ Pipeline terminé.")
-        return jsonify(evals)
+        # Optionnel : valider la structure de sortie avec Pydantic
+        # (sécurité supplémentaire, mais pas obligatoire)
+        try:
+            resp_model = AnalyzeResponse(
+                score_global=score_global,
+                couleur_global=color_for(score_global),
+                resume=synthèse,
+                axes=Axes(
+                    fond=AxesFond(
+                        justesse=AxisDetail(**axes_struct["fond"]["justesse"]),
+                        completude=AxisDetail(**axes_struct["fond"]["completude"]),
+                    ),
+                    forme=AxesForme(
+                        ton=AxisDetail(**axes_struct["forme"]["ton"]),
+                        sophismes=AxisDetail(**axes_struct["forme"]["sophismes"]),
+                    ),
+                ),
+                densite_faits=densite_faits,
+                type_texte=type_texte,
+                message_global=global_msg,
+                recherches_effectuees=web_hits,
+                faits_web=web_facts,
+                diffs=diffs,
+                web_context=web_info,
+                commentaire_web=response_payload["commentaire_web"],
+                commentaire=response_payload["commentaire"],
+                confiance_analyse=response_payload["confiance_analyse"],
+                explication_confiance=response_payload["explication_confiance"],
+            )
+            # On retourne le dict validé (et compatible frontend)
+            return jsonify(resp_model.model_dump())
+        except Exception as e:
+            # Si la validation Pydantic échoue, on renvoie quand même le dict brut
+            print("⚠️ Validation Pydantic AnalyzeResponse échouée :", e)
+            return jsonify(response_payload)
 
     except TimeoutError:
         return jsonify({"error": "Analyse trop longue (timeout)."}), 500
+
     except Exception as e:
-        print("❌ Erreur pipeline :", e)
+        print("❌ Erreur pipeline analyze() :", e)
         return jsonify({"error": str(e)}), 500
 
-        
+    finally:
+        signal.alarm(0)  # toujours désarmer le timeout
+
 
 # ======================================================
-# 📜 Historique des analyses
+# 🔵 BLOC 4/6 — HISTORIQUE DES ANALYSES (/logs)
 # ======================================================
+
 @app.route("/logs", methods=["GET"])
 def get_logs():
-    """Retourne les 50 dernières analyses enregistrées."""
+    """
+    Retourne les 50 dernières analyses enregistrées dans logs.jsonl.
+    Format : liste de JSON (timestamp, score, densité de faits, etc.)
+    """
     logs = []
+
     try:
         if os.path.exists("logs.jsonl"):
             with open("logs.jsonl", "r", encoding="utf-8") as f:
@@ -858,41 +1187,68 @@ def get_logs():
                     try:
                         logs.append(json.loads(line))
                     except Exception:
-                        continue
-        logs = sorted(logs, key=lambda x: x.get("timestamp", ""), reverse=True)[:50]
+                        continue  # ligne corrompue ignorée
+
+        logs = sorted(
+            logs,
+            key=lambda x: x.get("timestamp", ""),
+            reverse=True,
+        )[:50]
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
     return jsonify(logs)
 
 
 # ======================================================
-# Diagnostic / version
+# 🔵 BLOC 5/6 — DIAGNOSTIC /version
 # ======================================================
-@app.route("/version")
+
+@app.route("/version", methods=["GET"])
 def version():
-    return jsonify({"version": "De Facto v2.7-explicable-CSE", "status": "✅ actif"})
+    """
+    Endpoint de diagnostic.
+    Permet de vérifier que l'API est vivante et d'afficher un label de version.
+    """
+    return jsonify({
+        "version": "De Facto v2.8-explicable-CSE-pyramid-pydantic",
+        "status": "✅ actif"
+    })
 
 
 # ======================================================
-# Frontend (Replit uniquement)
+# 🔵 BLOC 6/6 — FRONTEND (Replit) + LANCEMENT SERVEUR
 # ======================================================
+
 if os.getenv("REPL_ID"):
     @app.route("/")
     def serve_frontend():
-        return send_from_directory(os.path.join(os.getcwd(), "frontend"), "index.html")
+        """Sert le fichier frontend/index.html comme page d'accueil en mode Replit."""
+        return send_from_directory(
+            os.path.join(os.getcwd(), "frontend"),
+            "index.html"
+        )
 
     @app.route("/<path:path>")
-    def serve_static(path):
+    def serve_static(path: str):
+        """
+        Sert les fichiers statiques du dossier frontend (JS, CSS, images).
+        Si le fichier demandé n'existe pas, on renvoie index.html
+        pour laisser le frontend (ex: React) gérer le routage.
+        """
         frontend_path = os.path.join(os.getcwd(), "frontend")
         file_path = os.path.join(frontend_path, path)
+
         if os.path.exists(file_path):
             return send_from_directory(frontend_path, path)
         else:
             return send_from_directory(frontend_path, "index.html")
 
 
-# ======================================================
-# Run
-# ======================================================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    # Lancement du serveur Flask
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+    )

@@ -996,15 +996,15 @@ def analyze():
         # Sécurité : structure par défaut si l’IA a raté le format
         axes_struct.setdefault("fond", {})
         axes_struct.setdefault("forme", {})
-
-
-        # Valeur par défaut pour un axe si l'IA n'a pas retourné le bon format
         fallback = {
             "note": 50,
-            "justification": "Analyse non disponible",
+            "justification": "",
+            "exemple": "",
+            "effet": "",
             "citation": "",
-            "severity_for_reader": "moyenne"
+            "couleur": "⚪"
         }
+
 
         axes_struct["fond"].setdefault("justesse", fallback.copy())
         axes_struct["fond"].setdefault("completude", fallback.copy())

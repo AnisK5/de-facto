@@ -180,7 +180,7 @@ def summarize_facts(text: str):
         log("[2/8] Étape 2", "Résumé + extraction des faits et opinions…", C_BLUE)
         prompt = """
         Analyse le texte suivant.
-        1) Fais un résumé court.
+        1) Fais un résumé court, et mettant en avant le message que veut faire passer l'article, ce qu'on est censés retenir ou l'opinion qu'on est censés se faire
         2) Liste les faits (chaque fait dans {"texte": "..."}).
         3) Liste les opinions (phrases subjectives).
 
@@ -222,8 +222,7 @@ def extract_entities(text: str):
     with StepTimer("Étape 3 - Entités clés"):
         log("[3/8] Étape 3", "Extraction des entités clés…", C_BLUE)
         prompt = """
-        Donne une liste JSON d'au maximum 5 entités importantes du texte
-        (personnes, organisations, lieux, concepts clés).
+        Donne une liste JSON de 3 éléments contextuels importants du texte
 
         Format attendu : ["entité 1", "entité 2", ...]
         """

@@ -101,11 +101,22 @@ def extract_json(text: str, fallback: dict):
     On essaie d'extraire le bloc { ... } et de le parser.
     """
     try:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        return json.loads(match.group(0)) if match else fallback
+        # 1️⃣ Essaie direct parsing
+        return json.loads(text)
+    except:
+        pass
+    
+    try:
+        # 2️⃣ Cherche le premier { et dernier } pour extraire le JSON
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            json_str = text[start:end+1]
+            return json.loads(json_str)
     except Exception as e:
         log("⚠️ JSON ERROR", str(e), color=C_YELLOW, indent=4)
-        return fallback
+    
+    return fallback
 
 def color_for(score: int) -> str:
     """🖌️ Convertit une note en un emoji couleur (pour le front)."""
@@ -248,7 +259,8 @@ def summarize_facts(text: str):
         """
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt + "\n\nTexte :\n" + text}]
+            messages=[{"role": "user", "content": prompt + "\n\nTexte :\n" + text}],
+            response_format={"type": "json_object"}
         )
         data = extract_json(resp.choices[0].message.content,
                             {"resume": "", "faits": [], "opinions": []})
@@ -267,40 +279,61 @@ def summarize_facts(text: str):
 
         return data
 
-# 🟣 ÉTAPE 3 — Entités clés
+# 🟣 ÉTAPE 3 — Assertions vérifiables (anciennement entités)
 def extract_entities(text: str):
-        """
-        Analyse le texte et identifie les PRINCIPALES ASSERTIONS vérifiables qu’il contient.
+    """
+    3️⃣ Extraction des assertions vérifiables (présupposés/claims).
+    """
+    with StepTimer("Étape 3 - Assertions vérifiables"):
+        log("[3/8] Étape 3", "Extraction des assertions vérifiables…", C_BLUE)
 
-        Une assertion = une phrase qui présente un fait, une implication, un présupposé ou une conséquence supposée vraie par le texte.
+        prompt = """
+        Tu dois EXTRAIRE des ASSERTIONS du texte suivant.
 
-        Exemples :
-        - “X est pressenti pour…”
-        - “Selon le texte, Y pourrait permettre de…”
-        - “Il est affirmé que…”
-        - “Le texte suggère que…”
+        Une ASSERTION = une phrase déclarative que le texte présente comme vraie
+        (explicite ou implicite), et qui peut être vérifiée sur des sources fiables.
 
-        Règles :
-        - Extrais entre 3 et 6 assertions MAX.
-        - Chaque assertion doit être formulée clairement, comme une proposition factuelle qu’on peut vérifier sur des sources fiables.
-        - Pas de résumé, pas de mots-clés : uniquement des affirmations vérifiables.
+        IMPORTANT :
+        - Si le texte contient un fait, un présupposé, une implication, une supposition → c’est une assertion.
+        - Si l’information est implicite ou supposée → tu l’extrais QUAND MÊME.
+        - Tu NE PEUX PAS répondre [].
+        - Si tu hésites, tu formules quand même une assertion prudente ("Le texte implique que…").
 
-        Format STRICT :
+        EXEMPLES D’ASSERTIONS VALIDES :
+        - “Le texte affirme que X pourrait être nommé.”
+        - “Le texte suggère que Y permettrait de résoudre le problème.”
+        - “Selon le texte, une urgence budgétaire motive la décision.”
+
+        RÈGLES :
+        - Retourne obligatoirement ENTRE 3 ET 6 ASSERTIONS.
+        - Chaque assertion doit être claire, autonome, et vérifiable.
+        - PAS de résumé. PAS de mots-clés. PAS d'analyse.
+
+        FORMAT STRICT JSON :
         [
           "assertion 1",
-          "assertion 2",
-          "assertion 3"
+          "assertion 2"
         ]
+
+        Texte à analyser :
         """
+
+
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "Extrais les principales assertions vérifiables du texte.\n\nTexte :\n" + text}]
+            messages=[
+                {"role": "user", "content": prompt + "\n\nTexte :\n" + text}
+            ]
         )
-        data = extract_json(resp.choices[0].message.content, [])
 
-        log_data("Entités détectées", data)
+        raw = resp.choices[0].message.content
+        data = extract_json(raw, [])
+
+        log_data("Assertions détectées", data)
 
         return data
+
+
 
 # 🟣 ÉTAPE 4 — Recherche web
 def search_web(entities: list):

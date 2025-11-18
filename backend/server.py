@@ -151,6 +151,61 @@ class AnalyzeResponse(BaseModel):
 # 🔵 4) FONCTIONS D'ANALYSE (PIPELINE)
 # -------------------------------------------------------------
 
+# Activer l'extraction automatique des URL
+ENABLE_URL_EXTRACT = True
+
+# 🟣 ÉTAPE 0 — EXTRACTION SIMPLE D'UN ARTICLE À PARTIR D'UNE URL
+
+def extract_article_from_url(url: str) -> str:
+    """
+    Version simple et robuste : d'abord Trafilatura,
+    sinon fallback HTML → texte.
+    Retourne l'article propre ou "" si échec.
+    """
+
+    print("\n🔎 [EXTRACT] Tentative extraction URL…")
+
+    # 1) Trafilatura
+    try:
+        import trafilatura
+        downloaded = trafilatura.fetch_url(url)
+        extracted = trafilatura.extract(downloaded) if downloaded else ""
+        if extracted and len(extracted) > 300:
+            print(f"✅ [EXTRACT] Trafilatura OK (len={len(extracted)})")
+            return extracted
+        print("⚠️ [EXTRACT] Trafilatura trop court → fallback")
+    except Exception as e:
+        print("⚠️ [EXTRACT] Trafilatura erreur :", e)
+
+    # 2) Fallback HTML → texte
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        r = requests.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Supprime les éléments inutiles
+        for tag in soup(["script", "style", "noscript", "footer", "header"]):
+            tag.decompose()
+
+        text = "\n".join(
+            l.strip()
+            for l in soup.get_text("\n").split("\n")
+            if len(l.strip()) > 40
+        )
+
+        if len(text) > 300:
+            print(f"✅ [EXTRACT] Fallback OK (len={len(text)})")
+            return text
+        print("❌ [EXTRACT] Fallback trop court")
+        return ""
+
+    except Exception as e:
+        print("❌ [EXTRACT] Fallback erreur :", e)
+        return ""
+
+
 # 🟣 ÉTAPE 1 — Message global
 def get_message_global(text: str):
     """
@@ -465,9 +520,28 @@ def analyze():
         log("❌ ERREUR REQUÊTE", str(e), color=C_YELLOW)
         return jsonify({"error": "Requête invalide"}), 400
 
+    
+
+    
     text = payload.text.strip()
+    
     log_data("Texte reçu (début)", text[:200] + ("…" if len(text) > 200 else ""), color=C_CYAN)
 
+
+    # --------------------------------------------------
+    # Si l'entrée est une URL → on tente d'extraire l'article
+    # --------------------------------------------------
+    if ENABLE_URL_EXTRACT and re.match(r"^https?://", text):
+        print("🌐 [ANALYZE] URL détectée :", text[:80], "...")
+        extracted = extract_article_from_url(text)
+
+        if extracted and len(extracted) > 300:
+            print(f"📝 [ANALYZE] Article extrait (len={len(extracted)}) → analyse OK\n")
+            text = extracted[:8000]  # Limite sécurité
+        else:
+            print("❌ [ANALYZE] Impossible d'extraire un article → analyse probablement vide")
+    
+    
     # 1️⃣ → 7️⃣ : pipeline d'analyse
     global_msg = get_message_global(text)
     summary = summarize_facts(text)

@@ -269,21 +269,32 @@ def summarize_facts(text: str):
 
 # 🟣 ÉTAPE 3 — Entités clés
 def extract_entities(text: str):
-    """
-    3️⃣ On détecte les entités importantes :
-        - personnes, organisations, lieux, thèmes
-    Ces entités serviront de “mots-clés” pour interroger le web.
-    """
-    with StepTimer("Étape 3 - Entités clés"):
-        log("[3/8] Étape 3", "Extraction des entités clés…", C_BLUE)
-        prompt = """
-        Donne une liste JSON de 3 éléments contextuels importants du texte
+        """
+        Analyse le texte et identifie les PRINCIPALES ASSERTIONS vérifiables qu’il contient.
 
-        Format attendu : ["entité 1", "entité 2", ...]
+        Une assertion = une phrase qui présente un fait, une implication, un présupposé ou une conséquence supposée vraie par le texte.
+
+        Exemples :
+        - “X est pressenti pour…”
+        - “Selon le texte, Y pourrait permettre de…”
+        - “Il est affirmé que…”
+        - “Le texte suggère que…”
+
+        Règles :
+        - Extrais entre 3 et 6 assertions MAX.
+        - Chaque assertion doit être formulée clairement, comme une proposition factuelle qu’on peut vérifier sur des sources fiables.
+        - Pas de résumé, pas de mots-clés : uniquement des affirmations vérifiables.
+
+        Format STRICT :
+        [
+          "assertion 1",
+          "assertion 2",
+          "assertion 3"
+        ]
         """
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt + "\n\nTexte :\n" + text}]
+            messages=[{"role": "user", "content": "Extrais les principales assertions vérifiables du texte.\n\nTexte :\n" + text}]
         )
         data = extract_json(resp.choices[0].message.content, [])
 

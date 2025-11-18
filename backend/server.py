@@ -171,7 +171,7 @@ def summarize_facts(text: str):
     Réponds en JSON :
     {{
       "resume": "...",
-      "faits": [{"texte": "..."}],
+      "faits": [{{"texte": "..."}}],
       "opinions": ["..."]
     }}
 
@@ -353,7 +353,20 @@ def analyze():
 
     # 6
     evals = evaluate_axes(summary, web_facts, diffs, global_msg)
-    axes = evals["axes"]
+    axes = evals.get("axes", {})
+    
+    # Garantir la structure par défaut si l'IA a échoué
+    if not axes.get("fond") or not axes.get("forme"):
+        axes = {
+            "fond": {
+                "justesse": {"note": 50, "justification": "Analyse non disponible", "citation": ""},
+                "completude": {"note": 50, "justification": "Analyse non disponible", "citation": ""}
+            },
+            "forme": {
+                "ton": {"note": 50, "justification": "Analyse non disponible", "citation": ""},
+                "sophismes": {"note": 50, "justification": "Analyse non disponible", "citation": ""}
+            }
+        }
 
     # 7
     synthese = build_synthesis(axes)

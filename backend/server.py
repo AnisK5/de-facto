@@ -415,7 +415,7 @@ def extract_entities(text: str):
         return data
 
 # 🟣 ÉTAPE 4 — Recherche web
-def search_web(entities):
+def search_web(entities: list):
     """
     4️⃣ À partir des entités, on interroge Google Custom Search
         sur une liste de médias considérés comme fiables.
@@ -434,7 +434,7 @@ def search_web(entities):
             entity_list = entities.get("presupposes", [])
         else:
             entity_list = entities if isinstance(entities, list) else []
-        
+
         results = []
         for ent in entity_list[:3]:  # on limite à 3 entités pour ne pas exploser le quota
             query = f"{ent} ({' OR '.join(['site:' + s for s in ALLOWED_SITES])})"
@@ -589,6 +589,39 @@ def evaluate_axes(summary: dict, web_facts: list, diffs: dict, global_msg: dict)
         - si problèmes : « Le texte fait croire X, alors que les sources fiables indiquent Y… »
         - si pas de problème : « Les faits présentés correspondent aux sources fiables… »
         - si axe peu sollicité : « Le texte est descriptif, peu de présupposés → axe peu sollicité. »
+
+        ────────────────────────────────────────────
+        📘 FORMAT DE JUSTIFICATION (FLEXIBLE MAIS STRUCTURÉ)
+
+        Chaque justification doit être précise, pédagogique et reposer sur ce que
+        le lecteur RETIENT réellement du texte.
+
+        Tu peux ignorer les sections non pertinentes si le texte ne contient pas
+        de présupposés, pas de conclusions, pas de ton orienté, etc.  
+        Dans ce cas, explique simplement : « cet axe est peu pertinent ici car… ».
+
+        Sinon, utilise la structure suivante (de façon flexible) :
+
+        1) 🎯 Ce que le texte fait croire, ou met en avant  
+           - citer une idée, un cadrage ou une formulation du texte (pas mot à mot s’il est trop long)  
+           - expliquer ce que le lecteur RETIENT
+
+        2) 📚 Ce que disent les sources fiables (Reuters, AFP, BBC, Le Monde…)  
+           - indiquer clairement où elles confirment, nuancent ou contredisent  
+           - donner un exemple concret (même reformulé)
+
+        3) 🎛️ Impact sur la perception du lecteur  
+           - expliquer si cela change beaucoup, modérément ou peu ce que le lecteur comprend
+
+        4) 🎓 Phrase pédagogique finale  
+           - courte, pour aider l’utilisateur à comprendre *pourquoi cela compte*
+
+        📌 Important :
+        - ne pas inventer de contradictions si les sources ne disent rien → dire explicitement « aucune contradiction trouvée »
+        - ne pas forcer des manquements s’il n’y en a pas → dire « aucune information fiable majeure manquante »
+        - tu peux combiner plusieurs parties si c’est plus naturel
+        ────────────────────────────────────────────
+
 
         ────────────────────────────────────────────
         🟧 AXE 2 — LOGIQUE

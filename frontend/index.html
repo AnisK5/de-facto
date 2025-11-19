@@ -343,8 +343,7 @@
   <section id="result" class="result"></section>
 
   <script>
-    const isLocal = window.location.hostname === "localhost" || window.location.hostname.includes("replit");
-    const API = isLocal ? "/analyze" : "https://de-facto-backend.onrender.com/analyze";
+    const API = "/analyze";
     const $ = s => document.querySelector(s);
     const resultDiv = $("#result");
     const loader = $("#loader");
@@ -423,9 +422,6 @@
 <div class="card">
   <p style="margin:0 0 6px;">
     <b>Confiance de l’analyse :</b> ${safeNum(d.confiance_analyse)} % 
-    <span style="color:var(--muted);font-weight:400;margin-left:6px;">
-      – ${esc(d.explication_confiance || "Analyse interne : cohérence moyenne entre les critères.")}
-    </span>
   </p>
 
 

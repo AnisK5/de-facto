@@ -264,22 +264,7 @@ def get_message_global(text: str):
     """
     with StepTimer("Étape 1 - Message global"):
         log("[1/8] Étape 1", "Analyse du message global…", C_BLUE)
-        prompt = """
-        Analyse ce texte et identifie ce qu’un lecteur RETIENT réellement après lecture.
-
-        Réponds STRICTEMENT en JSON :
-        {
-          "message": "...",
-          "opinion_retention": "...",
-          "sujets_majeurs": ["...", "..."]
-        }
-
-        Définitions :
-        - "message" = thèse centrale du texte.
-        - "opinion_retention" = perception laissée à un lecteur moyen.
-        - "sujets_majeurs" = les thèmes principaux sur lesquels le texte oriente la perception.
-        """
-
+        prompt = "Donne le message global en 3 lignes max. JSON {\"message\":\"...\"}"
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt + "\n\nTexte :\n" + text}]
@@ -299,20 +284,17 @@ def summarize_facts(text: str):
         log("[2/8] Étape 2", "Résumé + extraction des faits et opinions…", C_BLUE)
         prompt = """
         Analyse le texte suivant.
+        1) Fais un résumé court, et mettant en avant le message que veut faire passer l'article, ce qu'on est censés retenir ou l'opinion qu'on est censés se faire
+        2) Liste les faits (chaque fait dans {"texte": "..."}).
+        3) Liste les opinions (phrases subjectives).
 
-        Réponds STRICTEMENT en JSON :
+        Réponds STRICTEMENT au format JSON :
         {
           "resume": "...",
-          "faits": [{"texte": "..."}],
+          "faits": [{"texte":"..."}],
           "opinions": ["...", "..."]
         }
-
-        Rappels :
-        - Un "fait" est vérifiable objectivement.
-        - Une "opinion" exprime interprétation ou jugement.
-        - Le résumé doit refléter ce que le texte cherche à faire retenir.
         """
-
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt + "\n\nTexte :\n" + text}],
@@ -344,60 +326,35 @@ def extract_entities(text: str):
         log("[3/8] Étape 3", "Extraction des assertions vérifiables…", C_BLUE)
 
         prompt = """
-        Tu dois EXTRAIRE les PRÉSUPPOSÉS du texte **uniquement s’il y en a**.
+        Tu dois EXTRAIRE des ASSERTIONS du texte suivant.
 
-        📌 Définitions pour éviter toute ambiguïté :
-        Un présupposé = 
-        - une affirmation que le texte présente comme vraie,
-        - ou une idée implicite sur laquelle il repose,
-        - ou une conclusion suggérée au lecteur sans être démontrée.
+        Une ASSERTION = une phrase déclarative que le texte présente comme vraie
+        (explicite ou implicite), et qui peut être vérifiée sur des sources fiables.
 
-        ⚠️ Important :
-        Certains textes (dépêches factuelles, annonces neutres, descriptions brèves)
-        ne contiennent PAS de présupposés significatifs.
-        Dans ce cas, tu dois retourner une liste vide ET expliquer pourquoi.
+        IMPORTANT :
+        - Si le texte contient un fait, un présupposé, une implication, une supposition → c’est une assertion.
+        - Si l’information est implicite ou supposée → tu l’extrais QUAND MÊME.
+        - Tu NE PEUX PAS répondre [].
+        - Si tu hésites, tu formules quand même une assertion prudente ("Le texte implique que…").
 
-        ────────────────────────────────────────────
-        📌 Consigne :
-        - Si le texte contient des présupposés → en extraire entre 3 et 6.
-        - Si le texte n’en contient pas → renvoyer une liste vide mais EXPLIQUER pourquoi.
+        EXEMPLES D’ASSERTIONS VALIDES :
+        - “Le texte affirme que X pourrait être nommé.”
+        - “Le texte suggère que Y permettrait de résoudre le problème.”
+        - “Selon le texte, une urgence budgétaire motive la décision.”
 
-        ────────────────────────────────────────────
-        📘 EXEMPLES
+        RÈGLES :
+        - Retourne obligatoirement ENTRE 3 ET 6 ASSERTIONS.
+        - Chaque assertion doit être claire, autonome, et vérifiable.
+        - PAS de résumé. PAS de mots-clés. PAS d'analyse.
 
-        🟦 Exemple A — Texte avec présupposés
-        Texte : « La mairie a hissé le drapeau palestinien pour soutenir la paix. »
-        Présupposés extraits :
+        FORMAT STRICT JSON :
         [
-          "Le drapeau palestinien est un symbole de paix.",
-          "Le geste de la mairie soutient la cause palestinienne.",
-          "Ce geste a une portée politique ou morale."
+          "assertion 1",
+          "assertion 2"
         ]
 
-        🟦 Exemple B — Texte sans présupposés
-        Texte : « La mairie a publié à 14h un communiqué sur l'ouverture du parc. »
-        Résultat :
-        {
-          "presupposes": [],
-          "reason": "Le texte est purement descriptif, ne contient aucune interprétation ou affirmation implicite."
-        }
-
-        ────────────────────────────────────────────
-        📌 FORMAT STRICT :
-        Si des présupposés existent :
-        {
-          "presupposes": ["...", "..."]
-        }
-
-        Si le texte n’en contient pas :
-        {
-          "presupposes": [],
-          "reason": "..."
-        }
+        Texte à analyser :
         """
-
-
-
 
 
         resp = client.chat.completions.create(
@@ -415,7 +372,7 @@ def extract_entities(text: str):
         return data
 
 # 🟣 ÉTAPE 4 — Recherche web
-def search_web(entities):
+def search_web(entities: list):
     """
     4️⃣ À partir des entités, on interroge Google Custom Search
         sur une liste de médias considérés comme fiables.
@@ -429,14 +386,8 @@ def search_web(entities):
             log("⚠️ GOOGLE_CSE", "Pas de clé API ou de CX configuré → recherche web désactivée.", C_YELLOW, indent=4)
             return []
 
-        # Si entities est un dict avec 'presupposes', extraire la liste
-        if isinstance(entities, dict):
-            entity_list = entities.get("presupposes", [])
-        else:
-            entity_list = entities if isinstance(entities, list) else []
-        
         results = []
-        for ent in entity_list[:3]:  # on limite à 3 entités pour ne pas exploser le quota
+        for ent in entities[:3]:  # on limite à 3 entités pour ne pas exploser le quota
             query = f"{ent} ({' OR '.join(['site:' + s for s in ALLOWED_SITES])})"
             log_data("Requête web", query, indent=6)
 
@@ -470,36 +421,26 @@ def compare_text_web(summary: dict, web_hits: list):
         log("[5/8] Étape 5", "Comparaison du texte avec les sources web…", C_BLUE)
 
         prompt = """
-        Tu compares un texte avec des articles fiables.
+        Tu es un assistant qui compare un article avec des sources fiables.
 
-        Entrées :
-        - summary : résumé + faits/opinions
-        - web_hits : extraits de sources fiables
+        Voici :
+        - summary: résumé de l'article + faits extraits
+        - web_hits: extraits d'articles de presse fiables
 
-        Analyse :
-        1) Ce que disent les sources fiables sur les présupposés.
-        2) Où elles convergent.
-        3) Où elles divergent.
-        4) Quelles informations fiables manquent dans le texte.
-        5) Comment ces différences modifient la perception du lecteur.
+        Identifie :
+        - faits manquants (informations importantes présentes dans le web mais pas dans le texte)
+        - contradictions (le texte dit X, les sources disent Y)
+        - divergences (angles ou formulations très différentes)
+        - impact global : "faible", "modéré", ou "fort"
 
         Réponds STRICTEMENT en JSON :
         {
           "faits_manquants": ["...", "..."],
           "contradictions": ["...", "..."],
           "divergences": ["...", "..."],
-          "impact": "faible | modéré | fort",
-          "perception_impactee": "..."
+          "impact": "faible"
         }
-
-        Définitions :
-        - "faits_manquants" = infos fiables importantes absentes du texte.
-        - "contradictions" = texte dit X, sources fiables disent Y.
-        - "divergences" = cadrages ou priorités différentes.
-        - "impact" = importance de l'effet sur la perception du lecteur.
-        - "perception_impactee" = ce qui change dans la tête du lecteur.
         """
-
 
         # On envoie un contexte compact (on évite d'injecter tout brut)
         payload = {
@@ -546,96 +487,24 @@ def evaluate_axes(summary: dict, web_facts: list, diffs: dict, global_msg: dict)
                     "justification": ""
                 }
 
-        prompt = """
-        Tu dois attribuer une NOTE pour 4 axes :
-        - fond.Vrai
-        - fond.Complet
-        - forme.Neutre
-        - forme.Logique
+        prompt = f"""
+Tu évalues la fiabilité d'un article selon plusieurs axes (note de 0 à 100).
 
-        ⚠️ Notes obligatoires uniquement parmi :
-        [0, 20, 40, 60, 80, 100]
+Contexte :
+- global_msg: message principal de l'article
+- summary: résumé + faits/opinions
+- web_facts: extraits d'articles fiables
+- diffs: analyse des faits manquants/contradictions/divergences
 
-        ────────────────────────────────────────────
-        🔎 Rappel fondamental
-        La note ne porte PAS sur les présupposés eux-mêmes,
-        mais sur l’IMPACT que les informations FIABLES présentes ou absentes
-        ont sur ce que RETIENT un lecteur du texte.
+Axes à évaluer :
+{chr(10).join(axes_lines)}
 
-        ➡️ Si aucune information fiable ne manque OU n’impacte la perception,
-        alors la note doit être élevée (80 ou 100).
+IMPORTANT :
+- Chaque note est un entier entre 0 et 100.
+- La justification doit expliquer brièvement pourquoi tu as mis cette note.
 
-        ➡️ Si l’axe n’est pas vraiment pertinent
-        (ex: un texte neutre, descriptif, sans raisonnement),
-        alors la note doit être haute mais la justification doit l’expliquer :
-        « Axe faiblement sollicité dans ce type de texte ».
-
-        ────────────────────────────────────────────
-        🎯 BARÈME À UTILISER STRICTEMENT
-        ────────────────────────────────────────────
-        100 = Aucun impact perceptible. Perception identique.
-        80  = Impact très faible, nuances mineures.
-        60  = Impact modéré, perception légèrement modifiée.
-        40  = Impact important, perception clairement modifiée.
-        20  = Perception trompeuse ou très biaisée.
-        0   = Perception inversée par rapport aux sources fiables.
-
-        ────────────────────────────────────────────
-        🟩 AXE 1 — VRAI
-        Question : Les informations FIABLES confirment-elles ce que retient le lecteur ?
-        Remarque : si le texte est fidèle aux sources fiables → note 80 ou 100.
-
-        Justification :
-        - si problèmes : « Le texte fait croire X, alors que les sources fiables indiquent Y… »
-        - si pas de problème : « Les faits présentés correspondent aux sources fiables… »
-        - si axe peu sollicité : « Le texte est descriptif, peu de présupposés → axe peu sollicité. »
-
-        ────────────────────────────────────────────
-        🟧 AXE 2 — LOGIQUE
-        Question : Le raisonnement mène-t-il à des conclusions qui seraient différentes
-        si les informations FIABLES étaient présentes ?
-
-        Justification :
-        - si erreurs de raisonnement : expliquer lesquelles
-        - si raisonnements cohérents : le dire explicitement
-        - si le texte ne fait PAS de raisonnement : le dire (« axe non sollicité »)
-
-        ────────────────────────────────────────────
-        🟦 AXE 3 — COMPLET
-        Question : Le texte oublie-t-il des informations FIABLES importantes ?
-        Si rien d’important ne manque → note 80 ou 100.
-
-        Justification :
-        - si omissions importantes : lister précisément
-        - sinon : dire explicitement que le texte reste complet par rapport aux sources fiables
-
-        ────────────────────────────────────────────
-        🟪 AXE 4 — NEUTRE
-        Question : La formulation oriente-t-elle la perception, ou reste-t-elle neutre ?
-
-        Justification :
-        - si connotations : les citer
-        - si texte neutre : le dire
-        - si axe peu sollicité : le mentionner
-
-        ────────────────────────────────────────────
-        📌 FORMAT STRICT
-        ────────────────────────────────────────────
-        Réponds STRICTEMENT :
-        {
-          "axes": {
-            "fond": {
-              "Vrai":    {"note": 0, "justification": ""},
-              "Complet": {"note": 0, "justification": ""}
-            },
-            "forme": {
-              "Neutre":  {"note": 0, "justification": ""},
-              "Logique": {"note": 0, "justification": ""}
-            }
-          }
-        }
-
-        ⚠️ Notes OBLIGATOIREMENT dans [0,20,40,60,80,100]
+Réponds STRICTEMENT au format JSON suivant (mêmes clés, même structure) :
+{json.dumps(axes_template, ensure_ascii=False)}
         """.strip()
 
         payload = {
@@ -769,10 +638,10 @@ def analyze():
                 axes[category][key]["tooltip"] = meta["tooltip"]
 
     # Mapping vers les anciens champs pour compatibilité
-    fond_v = axes["fond"]["Vrai"]["note"]
-    fond_c = axes["fond"]["Complet"]["note"]
-    forme_n = axes["forme"]["Neutre"]["note"]
-    forme_l = axes["forme"]["Logique"]["note"]
+    fond_v = axes["fond"]["vrai"]["note"]
+    fond_c = axes["fond"]["complet"]["note"]
+    forme_n = axes["forme"]["neutre"]["note"]
+    forme_l = axes["forme"]["logique"]["note"]
 
     # Log final récap
     log("✅ ANALYSE TERMINÉE", color=C_GREEN)

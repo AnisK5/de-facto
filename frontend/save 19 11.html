@@ -83,6 +83,7 @@
       margin: 0.5rem 0 0.2rem;
     }
 
+
     /* -------- MAIN (centré verticalement) -------- */
     main {
       display: flex;
@@ -329,6 +330,7 @@
       <p>Collez un lien d'article ou son contenu, et découvrez s’il est fiable.</p>
     </header>
 
+
     <div class="input-wrapper">
       <div class="input-row">
         <textarea id="inputText" placeholder="https://www.media.fr/"></textarea>
@@ -346,14 +348,6 @@
     const $ = s => document.querySelector(s);
     const resultDiv = $("#result");
     const loader = $("#loader");
-
-    // Ordre des axes pour le radar + les cartes (même ordre que le back)
-    const AXES_ORDER = [
-      ["fond", "Vrai"],
-      ["forme", "Logique"],
-      ["fond", "Complet"],
-      ["forme", "Neutre"],
-    ];
 
     $("#analyzeBtn").onclick = async () => {
       const text = $("#inputText").value.trim();
@@ -380,12 +374,13 @@
     };
 
     function qualif(score) {
-      if (score >= 85) return "Très fiable";
-      if (score >= 70) return "Fiable";
-      if (score >= 50) return "Assez fiable";
-      if (score >= 30) return "Peu fiable";
-      return "Non fiable"; 
-    }  
+    if (score >= 85) return "Très fiable";
+    if (score >= 70) return "Fiable";
+    if (score >= 50) return "Assez fiable";
+    if (score >= 30) return "Peu fiable";
+    return "Non fiable"; 
+
+      }  
     
     function render(d) {
       resultDiv.innerHTML = "";
@@ -425,36 +420,34 @@
         </div>
 
         <!-- 🟦 Deuxième carte : Confiance de l’analyse enrichie -->
-        <div class="card">
-          <p style="margin:0 0 6px;">
-            <b>Confiance de l’analyse :</b> ${safeNum(d.confiance_analyse)} % 
-          </p>
-          <p class="confidence" style="margin:0;">
-            <i>Analyse expérimentale : De Facto est en amélioration continue.</i>
-          </p>
-        </div>
+<div class="card">
+  <p style="margin:0 0 6px;">
+    <b>Confiance de l’analyse :</b> ${safeNum(d.confiance_analyse)} % 
+  </p>
+
+
+  <p class="confidence" style="margin:0;">
+    <i>Analyse expérimentale : De Facto est en amélioration continue.</i>
+  </p>
+</div>
+
       `;
 
+
+
       resultDiv.insertAdjacentHTML("beforeend", scoreSection);
-
-      // Préparation des données du radar à partir de d.axes
-      const radarLabels = [];
-      const radarValues = [];
-
-      AXES_ORDER.forEach(([category, key]) => {
-        const crit = d.axes?.[category]?.[key];
-        if (crit) {
-          radarLabels.push(crit.label || key);
-          radarValues.push(crit.note || 0);
-        }
-      });
 
       new Chart($("#radarChart"), {
         type: "radar",
         data: {
-          labels: radarLabels,
+          labels: ["Vrai", "Complet", "Neutre", "Clair"],
           datasets: [{
-            data: radarValues,
+            data: [
+              d.axes?.fond?.justesse?.note || 0,
+              d.axes?.fond?.completude?.note || 0,
+              d.axes?.forme?.ton?.note || 0,
+              d.axes?.forme?.sophismes?.note || 0
+            ],
             backgroundColor: "rgba(10,74,154,0.07)",
             borderColor: "rgba(10,74,154,0.9)",
             borderWidth: 2,
@@ -478,22 +471,18 @@
       });
 
       const fond = d.axes?.fond || {}, forme = d.axes?.forme || {};
-
-      // Construction des cartes dans le même ordre que le radar
-      let cardsHtml = '<div class="cols">';
-      AXES_ORDER.forEach(([category, key]) => {
-        const crit = (category === "fond" ? fond : forme)[key];
-        if (!crit) return;
-        const title = crit.label || key;
-        const tooltip = crit.tooltip || "";
-        cardsHtml += card(title, tooltip, crit, key);
-      });
-      cardsHtml += '</div>';
-
-      resultDiv.insertAdjacentHTML("beforeend", cardsHtml);
+      const cards = `
+        <div class="cols">
+          ${card("Vrai", "Fidélité des faits", fond.justesse)}
+          ${card("Complet", "Richesse et diversité des infos", fond.completude)}
+          ${card("Neutre", "Absence de parti pris", forme.ton)}
+          ${card("Clair", "Cohérence de l’argumentation", forme.sophismes)}
+        </div>
+      `;
+      resultDiv.insertAdjacentHTML("beforeend", cards);
     }
 
-    function card(title, tooltip, crit, axisKey) {
+    function card(title, tooltip, crit) {
       if (!crit) return "";
       const cls = emojiClass(crit.couleur);
       const color =
@@ -502,45 +491,44 @@
         cls === "bad" ? "var(--bad)" :
         "var(--muted)";
 
-      // Qualification contextuelle selon l'axe (basée sur la CLÉ, pas le label)
-      function qualifSpecifique(key, note) {
-        if (key === "Vrai") {
+      // 🧠 Génère une qualification contextuelle selon le critère
+      function qualifSpecifique(title, note) {
+        if (title === "Vrai") {
           if (note >= 85) return "Très fidèle aux faits";
           if (note >= 70) return "Fidèle aux faits";
           if (note >= 50) return "Partiellement exact";
           if (note >= 30) return "Inexact";
           return "Peu fiable";
         }
-        if (key === "Complet") {
+        if (title === "Complet") {
           if (note >= 85) return "Très complet";
           if (note >= 70) return "Assez complet";
           if (note >= 50) return "Partiel";
           if (note >= 30) return "Incomplet";
           return "Très incomplet";
         }
-        if (key === "Neutre") {
+        if (title === "Neutre") {
           if (note >= 85) return "Tonalité très équilibrée";
           if (note >= 70) return "Tonalité équilibrée";
           if (note >= 50) return "Tonalité mitigée";
           if (note >= 30) return "Tonalité biaisée";
           return "Très biaisée";
         }
-        if (key === "Logique") {
+        if (title === "Clair") {
           if (note >= 85) return "Raisonnement très cohérent";
           if (note >= 70) return "Raisonnement cohérent";
-          if (note >= 50) return "Assez logique";
-          if (note >= 30) return "Raisonnement faible";
-          return "Raisonnement illogique";
+          if (note >= 50) return "Assez clair";
+          if (note >= 30) return "Confus";
+          return "Très confus";
         }
         return "";
       }
 
-      const qualification = qualifSpecifique(axisKey, crit.note);
+      const qualification = qualifSpecifique(title, crit.note);
 
       return `
         <div class="card">
           <h3 style="margin:0 0 6px;">${esc(title)}</h3>
-          ${tooltip ? `<p class="tooltip">${esc(tooltip)}</p>` : ""}
 
           <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 6px;">
             <p style="margin:0;font-weight:600;color:${color};">${safeNum(crit.note)} / 100</p>
@@ -557,6 +545,10 @@
         </div>
       `;
     }
+
+
+
+
 
     function emojiClass(e) {
       if (e === "🟢") return "ok";

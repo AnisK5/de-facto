@@ -429,13 +429,13 @@ def search_web(entities: list):
             log("⚠️ GOOGLE_CSE", "Pas de clé API ou de CX configuré → recherche web désactivée.", C_YELLOW, indent=4)
             return []
 
+        results = []
         # Si entities est un dict avec 'presupposes', extraire la liste
         if isinstance(entities, dict):
             entity_list = entities.get("presupposes", [])
         else:
             entity_list = entities if isinstance(entities, list) else []
 
-        results = []
         for ent in entity_list[:3]:  # on limite à 3 entités pour ne pas exploser le quota
             query = f"{ent} ({' OR '.join(['site:' + s for s in ALLOWED_SITES])})"
             log_data("Requête web", query, indent=6)
@@ -710,10 +710,24 @@ def build_synthesis(axes: dict):
         log("[7/8] Étape 7", "Génération de la synthèse globale…", C_BLUE)
 
         prompt = """
-        À partir des notes et justifications des axes, écris une synthèse
-        en 3 courts paragraphes, en français, pédagogique et nuancée.
+        Tu dois écrire une synthèse très courte et percutante (3 phrases maximum).
 
-        Ne fais pas de listes.
+        Objectif : que le lecteur comprenne en quelques secondes :
+        1) ce que le texte lui fait croire,
+        2) ce que l'analyse révèle comme limites essentielles,
+        3) et si le texte est globalement fiable.
+
+        Règles :
+        - 3 phrases maximum.
+        - Style clair, direct, pédagogique.
+        - Pas de listes, pas de détails techniques.
+        - Pas de chiffres ni de nom d’axes.
+        - Mentionner uniquement les éléments essentiels visibles dans les justifications.
+        - Utiliser ce modèle implicite :
+            Phrase 1 : ce que le lecteur retient du texte (perception principale).
+            Phrase 2 : les manques / biais / divergences importantes révélées par l'analyse.
+            Phrase 3 : impact final sur la fiabilité du texte (fiable / assez fiable / partiel / peu fiable / non fiable).
+        - Ne rien inventer.
         """
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
